@@ -56,7 +56,8 @@ function sleep(ms) {
 async function postAsr(blob, model = 'base') {
   const form = new FormData()
   form.append('audio_file', blob, 'reading.webm')
-  const path = model === 'small' ? '/asr-small' : '/asr'
+  // Path must not start with /asr (Vite proxy uses startsWith).
+  const path = model === 'small' ? '/small-asr' : '/asr'
   return fetch(`${path}?task=transcribe&language=fr&output=json&word_timestamps=true`, {
     method: 'POST',
     body: form,
@@ -119,7 +120,9 @@ export async function transcribeFrenchAudio(blob, { model = 'base' } = {}) {
 
     throw new WhisperUnavailableError(
       model === 'small'
-        ? `Whisper small a renvoyé ${response.status}. Démarrez-le avec \`docker compose --profile small up -d\` (port 9001), attendez 1–2 min.`
+        ? response.status === 404
+          ? 'Whisper small a renvoyé 404. Relancez le serveur web (`docker compose restart web`) après la dernière mise à jour, puis vérifiez `curl http://127.0.0.1:9001/docs`.'
+          : `Whisper small a renvoyé ${response.status}. Démarrez-le avec \`docker compose --profile small up -d\` (port 9001), attendez 1–2 min.`
         : `Whisper a renvoyé ${response.status}. Relancez : \`docker compose restart whisper\` puis attendez ~30–60 s.`,
     )
   }

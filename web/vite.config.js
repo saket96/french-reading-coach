@@ -20,18 +20,20 @@ export default defineConfig({
     port: 4378,
     strictPort: true,
     proxy: {
-      '/asr': asrProxy(whisperUrl),
-      '/asr-small': {
+      // Use /small-asr (not /asr-small): Vite matches proxy prefixes with
+      // startsWith, so /asr would otherwise swallow /asr-small → 404 on base.
+      '/small-asr': {
         ...asrProxy(whisperSmallUrl),
-        rewrite: (path) => path.replace(/^\/asr-small/, '/asr'),
+        rewrite: (path) => path.replace(/^\/small-asr/, '/asr'),
       },
-      '/whisper-health': {
-        target: whisperUrl,
+      '/asr': asrProxy(whisperUrl),
+      '/whisper-small-health': {
+        target: whisperSmallUrl,
         changeOrigin: true,
         rewrite: () => '/docs',
       },
-      '/whisper-small-health': {
-        target: whisperSmallUrl,
+      '/whisper-health': {
+        target: whisperUrl,
         changeOrigin: true,
         rewrite: () => '/docs',
       },
