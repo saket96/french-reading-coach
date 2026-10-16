@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BookOpen,
-  ChevronLeft,
   ChevronRight,
   CircleStop,
   Languages,
@@ -29,8 +28,6 @@ import { countGuidedWords } from './lib/guided.js'
 import {
   PACE_PRESETS,
   speakFrench,
-  startAdaptiveReadingGuide,
-  startManualReadingGuide,
   startReadingGuide,
   stopSpeaking,
   wordIndexFromCharIndex,
@@ -63,7 +60,8 @@ function loadClickLearn() {
 function loadPace() {
   try {
     const raw = localStorage.getItem(PACE_KEY)
-    if (raw && PACE_PRESETS[raw]) return raw
+    // "libre" was for recording guides; listening only uses lent/moyen/rapide
+    if (raw && raw !== 'libre' && PACE_PRESETS[raw]) return raw
   } catch {
     // ignore
   }
@@ -172,7 +170,6 @@ export default function App() {
   const streamRef = useRef(null)
   const timerRef = useRef(null)
   const guideStopRef = useRef(null)
-  const manualGuideRef = useRef(null)
 
   const paceConfig = PACE_PRESETS[pace] || PACE_PRESETS.moyen
 
@@ -244,7 +241,6 @@ export default function App() {
   const stopGuide = () => {
     guideStopRef.current?.()
     guideStopRef.current = null
-    manualGuideRef.current = null
     setGuideWordIndex(-1)
     setGuideMode('')
     stopSpeaking()
@@ -393,28 +389,8 @@ export default function App() {
       recorder.start()
       startTimer()
       setPhase('recording')
-      setGuideMode('read')
-      const onWord = (index) => setGuideWordIndex(index)
-      const onDone = () => {
-        setGuideWordIndex(-1)
-        setGuideMode('')
-        guideStopRef.current = null
-        manualGuideRef.current = null
-      }
-
-      if (pace === 'libre') {
-        const manual = startManualReadingGuide(wordCount, { onWord, onDone })
-        manualGuideRef.current = manual
-        guideStopRef.current = () => manual.stop()
-      } else {
-        // Follow the mic: pause highlight when you pause, resume when you speak
-        guideStopRef.current = startAdaptiveReadingGuide(wordCount, {
-          stream,
-          wpm: paceConfig.wpm,
-          onWord,
-          onDone,
-        })
-      }
+      // Record at your own pace — feedback comes after Stop
+      stopGuide()
     } catch {
       setError(
         'Micro refusé ou indisponible. Autorisez le micro dans Chrome ou Edge, ou utilisez la démo sans micro.',
@@ -610,8 +586,8 @@ export default function App() {
           </p>
           <h1 className="mt-1 font-serif text-3xl sm:text-4xl">Coach de lecture française</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Activez « Clic mot » pour entendre et traduire un mot au clic. Sinon, lisez sans
-            interruption.
+            Enregistrez à votre rythme, puis recevez le retour. « Clic mot » et l’écoute guidée
+            restent optionnels.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 self-start">
@@ -931,40 +907,38 @@ export default function App() {
             Ajoutez votre texte ou choisissez un passage de la bibliothèque.
           </p>
         )}
-        {guideMode ? (
+        {phase === 'recording' ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            {guideMode === 'listen'
-              ? `Écoute guidée (${paceConfig.label}) — suivez le mot surligné.`
-              : pace === 'libre'
-                ? 'Lecture libre — utilisez Suivant / Précédent à votre rythme.'
-                : `Lecture guidée (${paceConfig.label}) — le surlignage suit votre voix.`}
+            Parlez à votre rythme — le retour (mots, liaisons, prononciation) arrive après Stop.
+          </p>
+        ) : null}
+        {guideMode === 'listen' ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Écoute guidée ({paceConfig.label}) — suivez le mot surligné.
           </p>
         ) : null}
       </section>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <span className="text-sm text-muted-foreground">Rythme :</span>
-        {Object.entries(PACE_PRESETS).map(([key, preset]) => (
-          <Button
-            key={key}
-            size="sm"
-            variant={pace === key ? 'default' : 'outline'}
-            onClick={() => setPace(key)}
-            disabled={phase === 'recording' || phase === 'transcribing'}
-            title={
-              key === 'libre'
-                ? 'Vous avancez le surlignage avec Suivant / Précédent'
-                : `Surlignage ~${preset.wpm} mots/min — se met en pause quand vous vous taisez`
-            }
-          >
-            {preset.label}
-          </Button>
-        ))}
+        <span className="text-sm text-muted-foreground">Vitesse d’écoute :</span>
+        {Object.entries(PACE_PRESETS)
+          .filter(([key]) => key !== 'libre')
+          .map(([key, preset]) => (
+            <Button
+              key={key}
+              size="sm"
+              variant={pace === key ? 'default' : 'outline'}
+              onClick={() => setPace(key)}
+              disabled={phase === 'recording' || phase === 'transcribing'}
+              title={`Modèle ~${preset.wpm} mots/min`}
+            >
+              {preset.label}
+            </Button>
+          ))}
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        {pace === 'libre'
-          ? 'Mode libre : pendant l’enregistrement, avancez le mot avec Suivant (votre rythme).'
-          : 'Pendant l’enregistrement, le surlignage suit votre voix et se met en pause si vous faites une pause.'}
+        L’enregistrement est libre (votre vitesse). Ces réglages ne concernent que « Écouter
+        (guidé) ».
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -980,27 +954,9 @@ export default function App() {
             disabled={phase === 'transcribing' || !currentChunk}
           >
             <Mic className="h-4 w-4" />
-            Enregistrer (guidé)
+            Enregistrer
           </Button>
         )}
-        {phase === 'recording' && pace === 'libre' ? (
-          <>
-            <Button
-              variant="outline"
-              onClick={() => manualGuideRef.current?.prev()}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Précédent
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => manualGuideRef.current?.next()}
-            >
-              Suivant
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </>
-        ) : null}
         <Button variant="secondary" onClick={resetAttempt} disabled={phase === 'recording'}>
           <RotateCcw className="h-4 w-4" />
           Réessayer
@@ -1013,9 +969,9 @@ export default function App() {
           <Volume2 className="h-4 w-4" />
           Écouter (guidé)
         </Button>
-        {guideMode ? (
+        {guideMode === 'listen' ? (
           <Button variant="ghost" onClick={stopGuide}>
-            Stop guide
+            Stop écoute
           </Button>
         ) : null}
         {audioUrl ? (
@@ -1042,8 +998,8 @@ export default function App() {
 
       {phase === 'idle' && !error ? (
         <p className="mt-6 rounded-lg border border-dashed border-border bg-card/60 p-4 text-sm text-muted-foreground">
-          Écoutez (guidé) pour suivre le surlignage, puis enregistrez en suivant le curseur. Cliquez un
-          mot pour l’entendre et le traduire en haut de la page.
+          Enregistrez les deux phrases à votre rythme, puis lisez la revue. Optionnel : écoute
+          guidée, ou « Clic mot » pour entendre / traduire un mot.
         </p>
       ) : null}
 
