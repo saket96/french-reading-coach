@@ -136,6 +136,13 @@ export function wordIndexFromCharIndex(text, displayTokens, charIndex) {
   return last
 }
 
+export const PACE_PRESETS = {
+  lent: { wpm: 55, ttsRate: 0.58, label: 'Lent' },
+  moyen: { wpm: 75, ttsRate: 0.68, label: 'Moyen' },
+  rapide: { wpm: 105, ttsRate: 0.82, label: 'Rapide' },
+  libre: { wpm: 0, ttsRate: 0.68, label: 'Libre' },
+}
+
 /**
  * Guided highlight while the learner reads (no TTS): advance word-by-word.
  * Returns a stop() function.
@@ -145,7 +152,6 @@ export function startReadingGuide(wordCount, { wpm = 80, onWord, onDone } = {}) 
     onDone?.()
     return () => {}
   }
-  // Learner pace: ~80 WPM, at least ~550ms per word so humans can follow
   const msPerWord = Math.max(550, Math.round(60000 / wpm))
   let index = 0
   onWord?.(0)
@@ -159,4 +165,125 @@ export function startReadingGuide(wordCount, { wpm = 80, onWord, onDone } = {}) 
     onWord?.(index)
   }, msPerWord)
   return () => window.clearInterval(id)
+}
+
+/**
+ * Highlight that follows the mic: advances while you speak, pauses when you pause.
+ * Returns stop().
+ */
+export function startAdaptiveReadingGuide(
+  wordCount,
+  { stream, wpm = 75, onWord, onDone, silenceMs = 450, speechThreshold = 0.018 } = {},
+) {
+  if (wordCount <= 0) {
+    onDone?.()
+    return () => {}
+  }
+
+  const msPerWord = Math.max(500, Math.round(60000 / wpm))
+  let index = 0
+  let accrued = 0
+  let lastTs = performance.now()
+  let raf = 0
+  let audioCtx = null
+  let analyser = null
+  let source = null
+  const data = new Uint8Array(512)
+
+  onWord?.(0)
+
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+    analyser = audioCtx.createAnalyser()
+    analyser.fftSize = 1024
+    analyser.smoothingTimeConstant = 0.7
+    source = audioCtx.createMediaStreamSource(stream)
+    source.connect(analyser)
+  } catch {
+    // Fall back to fixed pace if Web Audio unavailable
+    return startReadingGuide(wordCount, { wpm, onWord, onDone })
+  }
+
+  const tick = (now) => {
+    const dt = now - lastTs
+    lastTs = now
+
+    analyser.getByteTimeDomainData(data)
+    let sum = 0
+    for (let i = 0; i < data.length; i += 1) {
+      const v = (data[i] - 128) / 128
+      sum += v * v
+    }
+    const rms = Math.sqrt(sum / data.length)
+    const speaking = rms >= speechThreshold
+
+    // Only advance while voice is present (pauses don't burn the timer)
+    if (speaking) {
+      accrued += dt
+      while (accrued >= msPerWord && index < wordCount - 1) {
+        accrued -= msPerWord
+        index += 1
+        onWord?.(index)
+      }
+      if (index >= wordCount - 1 && accrued >= msPerWord * 0.6) {
+        cleanup()
+        onDone?.()
+        return
+      }
+    } else {
+      // Soft decay so a short breath doesn't jump ahead after silence
+      accrued = Math.max(0, accrued - dt * 0.35)
+    }
+
+    raf = window.requestAnimationFrame(tick)
+  }
+
+  const cleanup = () => {
+    window.cancelAnimationFrame(raf)
+    try {
+      source?.disconnect()
+      analyser?.disconnect()
+      if (audioCtx && audioCtx.state !== 'closed') audioCtx.close()
+    } catch {
+      // ignore
+    }
+  }
+
+  lastTs = performance.now()
+  raf = window.requestAnimationFrame(tick)
+  // Avoid unused silenceMs lint — keep as documented knobs for future tuning
+  void silenceMs
+
+  return cleanup
+}
+
+/**
+ * Manual "libre" guide: start on word 0; caller advances with returned next/prev/stop.
+ */
+export function startManualReadingGuide(wordCount, { onWord, onDone } = {}) {
+  let index = 0
+  if (wordCount <= 0) {
+    onDone?.()
+    return { next: () => {}, prev: () => {}, stop: () => {}, getIndex: () => 0 }
+  }
+  onWord?.(0)
+  return {
+    getIndex: () => index,
+    next: () => {
+      if (index >= wordCount - 1) {
+        onDone?.()
+        return index
+      }
+      index += 1
+      onWord?.(index)
+      if (index >= wordCount - 1) onDone?.()
+      return index
+    },
+    prev: () => {
+      index = Math.max(0, index - 1)
+      onWord?.(index)
+      return index
+    },
+    stop: () => {},
+  }
 }

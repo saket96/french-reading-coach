@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BookOpen,
+  ChevronLeft,
   ChevronRight,
   CircleStop,
   Languages,
@@ -26,7 +27,10 @@ import {
 import { buildFocusReview } from './lib/review.js'
 import { countGuidedWords } from './lib/guided.js'
 import {
+  PACE_PRESETS,
   speakFrench,
+  startAdaptiveReadingGuide,
+  startManualReadingGuide,
   startReadingGuide,
   stopSpeaking,
   wordIndexFromCharIndex,
@@ -44,6 +48,7 @@ import { passages } from './passages.js'
 
 const PASS_THRESHOLD = 0.7
 const CLICK_LEARN_KEY = 'frc-click-learn'
+const PACE_KEY = 'frc-speaking-pace'
 
 function loadClickLearn() {
   try {
@@ -53,6 +58,16 @@ function loadClickLearn() {
   } catch {
     return false
   }
+}
+
+function loadPace() {
+  try {
+    const raw = localStorage.getItem(PACE_KEY)
+    if (raw && PACE_PRESETS[raw]) return raw
+  } catch {
+    // ignore
+  }
+  return 'moyen'
 }
 
 const pickMimeType = () => {
@@ -150,12 +165,16 @@ export default function App() {
   const [guideWordIndex, setGuideWordIndex] = useState(-1)
   const [guideMode, setGuideMode] = useState('') // 'listen' | 'read' | ''
   const [clickLearn, setClickLearn] = useState(() => loadClickLearn())
+  const [pace, setPace] = useState(() => loadPace())
 
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
   const streamRef = useRef(null)
   const timerRef = useRef(null)
   const guideStopRef = useRef(null)
+  const manualGuideRef = useRef(null)
+
+  const paceConfig = PACE_PRESETS[pace] || PACE_PRESETS.moyen
 
   const activePassage = useMemo(() => {
     if (sourceMode === 'custom') return customPassage(customText)
@@ -214,9 +233,18 @@ export default function App() {
     }
   }, [clickLearn])
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(PACE_KEY, pace)
+    } catch {
+      // ignore
+    }
+  }, [pace])
+
   const stopGuide = () => {
     guideStopRef.current?.()
     guideStopRef.current = null
+    manualGuideRef.current = null
     setGuideWordIndex(-1)
     setGuideMode('')
     stopSpeaking()
@@ -365,17 +393,28 @@ export default function App() {
       recorder.start()
       startTimer()
       setPhase('recording')
-      // Guided reading highlight while the learner speaks
       setGuideMode('read')
-      guideStopRef.current = startReadingGuide(wordCount, {
-        wpm: 75,
-        onWord: (index) => setGuideWordIndex(index),
-        onDone: () => {
-          setGuideWordIndex(-1)
-          setGuideMode('')
-          guideStopRef.current = null
-        },
-      })
+      const onWord = (index) => setGuideWordIndex(index)
+      const onDone = () => {
+        setGuideWordIndex(-1)
+        setGuideMode('')
+        guideStopRef.current = null
+        manualGuideRef.current = null
+      }
+
+      if (pace === 'libre') {
+        const manual = startManualReadingGuide(wordCount, { onWord, onDone })
+        manualGuideRef.current = manual
+        guideStopRef.current = () => manual.stop()
+      } else {
+        // Follow the mic: pause highlight when you pause, resume when you speak
+        guideStopRef.current = startAdaptiveReadingGuide(wordCount, {
+          stream,
+          wpm: paceConfig.wpm,
+          onWord,
+          onDone,
+        })
+      }
     } catch {
       setError(
         'Micro refusé ou indisponible. Autorisez le micro dans Chrome ou Edge, ou utilisez la démo sans micro.',
@@ -421,7 +460,7 @@ export default function App() {
     const fallbackTimer = window.setTimeout(() => {
       if (gotBoundary || guideStopRef.current) return
       guideStopRef.current = startReadingGuide(wordCount, {
-        wpm: 80,
+        wpm: pace === 'libre' ? PACE_PRESETS.moyen.wpm : paceConfig.wpm,
         onWord: (index) => setGuideWordIndex(index),
         onDone: () => {
           setGuideWordIndex(-1)
@@ -431,9 +470,12 @@ export default function App() {
       })
     }, 900)
 
+    const listenWpm = pace === 'libre' ? PACE_PRESETS.moyen.wpm : paceConfig.wpm
+    const listenRate = pace === 'libre' ? PACE_PRESETS.moyen.ttsRate : paceConfig.ttsRate
+
     try {
       await speakFrench(text, {
-        rate: 0.68,
+        rate: listenRate,
         onBoundary: (charIndex) => {
           gotBoundary = true
           window.clearTimeout(fallbackTimer)
@@ -453,7 +495,7 @@ export default function App() {
       window.clearTimeout(fallbackTimer)
       if (!guideStopRef.current) {
         guideStopRef.current = startReadingGuide(wordCount, {
-          wpm: 80,
+          wpm: listenWpm,
           onWord: (index) => setGuideWordIndex(index),
           onDone: () => {
             setGuideWordIndex(-1)
@@ -892,13 +934,40 @@ export default function App() {
         {guideMode ? (
           <p className="mt-3 text-xs text-muted-foreground">
             {guideMode === 'listen'
-              ? 'Lecture guidée — suivez le mot surligné pendant l’écoute.'
-              : 'Lecture guidée — lisez à voix haute en suivant le surlignage.'}
+              ? `Écoute guidée (${paceConfig.label}) — suivez le mot surligné.`
+              : pace === 'libre'
+                ? 'Lecture libre — utilisez Suivant / Précédent à votre rythme.'
+                : `Lecture guidée (${paceConfig.label}) — le surlignage suit votre voix.`}
           </p>
         ) : null}
       </section>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="text-sm text-muted-foreground">Rythme :</span>
+        {Object.entries(PACE_PRESETS).map(([key, preset]) => (
+          <Button
+            key={key}
+            size="sm"
+            variant={pace === key ? 'default' : 'outline'}
+            onClick={() => setPace(key)}
+            disabled={phase === 'recording' || phase === 'transcribing'}
+            title={
+              key === 'libre'
+                ? 'Vous avancez le surlignage avec Suivant / Précédent'
+                : `Surlignage ~${preset.wpm} mots/min — se met en pause quand vous vous taisez`
+            }
+          >
+            {preset.label}
+          </Button>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {pace === 'libre'
+          ? 'Mode libre : pendant l’enregistrement, avancez le mot avec Suivant (votre rythme).'
+          : 'Pendant l’enregistrement, le surlignage suit votre voix et se met en pause si vous faites une pause.'}
+      </p>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         {phase === 'recording' ? (
           <Button variant="destructive" size="lg" onClick={stopRecording}>
             <CircleStop className="h-4 w-4" />
@@ -914,6 +983,24 @@ export default function App() {
             Enregistrer (guidé)
           </Button>
         )}
+        {phase === 'recording' && pace === 'libre' ? (
+          <>
+            <Button
+              variant="outline"
+              onClick={() => manualGuideRef.current?.prev()}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Précédent
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => manualGuideRef.current?.next()}
+            >
+              Suivant
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </>
+        ) : null}
         <Button variant="secondary" onClick={resetAttempt} disabled={phase === 'recording'}>
           <RotateCcw className="h-4 w-4" />
           Réessayer
