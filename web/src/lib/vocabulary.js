@@ -31,9 +31,20 @@ export function upsertVocabularyEntry(entries, { word, translation, note = '' })
     translation: String(translation ?? '').trim(),
     note: String(note ?? '').trim(),
     savedAt: new Date().toISOString(),
+    reviews: 0,
+    correct: 0,
+    box: 1, // Leitner box 1–5
   }
-  if (index >= 0) next[index] = { ...next[index], ...entry }
-  else next.unshift(entry)
+  if (index >= 0) {
+    next[index] = {
+      ...entry,
+      reviews: next[index].reviews ?? 0,
+      correct: next[index].correct ?? 0,
+      box: next[index].box ?? 1,
+      savedAt: next[index].savedAt ?? entry.savedAt,
+      translation: entry.translation || next[index].translation,
+    }
+  } else next.unshift(entry)
   return next
 }
 
@@ -42,4 +53,28 @@ export function removeVocabularyEntry(entries, word) {
     .trim()
     .toLowerCase()
   return entries.filter((item) => item.word !== normalized)
+}
+
+/** Shuffle copy for a review session; lower Leitner boxes first. */
+export function buildReviewDeck(entries) {
+  const list = [...(entries ?? [])].filter((e) => e.word && e.translation)
+  list.sort((a, b) => (a.box ?? 1) - (b.box ?? 1) || Math.random() - 0.5)
+  return list
+}
+
+export function gradeReviewEntry(entries, word, knewIt) {
+  const normalized = String(word ?? '')
+    .trim()
+    .toLowerCase()
+  return entries.map((item) => {
+    if (item.word !== normalized) return item
+    const box = Math.min(5, Math.max(1, (item.box ?? 1) + (knewIt ? 1 : -1)))
+    return {
+      ...item,
+      box,
+      reviews: (item.reviews ?? 0) + 1,
+      correct: (item.correct ?? 0) + (knewIt ? 1 : 0),
+      lastReviewedAt: new Date().toISOString(),
+    }
+  })
 }

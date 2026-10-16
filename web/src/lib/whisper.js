@@ -53,10 +53,11 @@ function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-async function postAsr(blob) {
+async function postAsr(blob, model = 'base') {
   const form = new FormData()
   form.append('audio_file', blob, 'reading.webm')
-  return fetch('/asr?task=transcribe&language=fr&output=json&word_timestamps=true', {
+  const path = model === 'small' ? '/asr-small' : '/asr'
+  return fetch(`${path}?task=transcribe&language=fr&output=json&word_timestamps=true`, {
     method: 'POST',
     body: form,
   })
@@ -74,21 +75,24 @@ function parseAsrResponse(response, bodyText) {
   }
 }
 
-export async function transcribeFrenchAudio(blob) {
+export async function transcribeFrenchAudio(blob, { model = 'base' } = {}) {
   const maxAttempts = 4
   let lastStatus = 0
+  const modelLabel = model === 'small' ? 'small' : 'base'
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     let response
     try {
-      response = await postAsr(blob)
+      response = await postAsr(blob, model)
     } catch {
       if (attempt < maxAttempts) {
         await sleep(1200 * attempt)
         continue
       }
       throw new WhisperUnavailableError(
-        'Whisper n’est pas joignable. Dans le dossier du projet : `docker compose up -d` puis `docker compose logs -f whisper` — attendez que le modèle soit chargé.',
+        model === 'small'
+          ? 'Whisper small n’est pas joignable. Lancez : `docker compose --profile small up -d` puis attendez le chargement.'
+          : 'Whisper n’est pas joignable. Dans le dossier du projet : `docker compose up -d` puis attendez que le modèle base soit chargé.',
       )
     }
 
@@ -97,12 +101,13 @@ export async function transcribeFrenchAudio(blob) {
       const bodyText = await response.text()
       const payload = parseAsrResponse(response, bodyText)
       if (typeof payload === 'string') {
-        return { text: payload, words: [], raw: null }
+        return { text: payload, words: [], raw: null, model: modelLabel }
       }
       return {
         text: extractTranscript(payload),
         words: extractWordTimings(payload),
         raw: payload,
+        model: modelLabel,
       }
     }
 
@@ -113,11 +118,13 @@ export async function transcribeFrenchAudio(blob) {
     }
 
     throw new WhisperUnavailableError(
-      `Whisper a renvoyé ${response.status}. Relancez : \`docker compose restart whisper\` puis attendez ~30–60 s (chargement du modèle) avant de réessayer.`,
+      model === 'small'
+        ? `Whisper small a renvoyé ${response.status}. Démarrez-le avec \`docker compose --profile small up -d\` (port 9001), attendez 1–2 min.`
+        : `Whisper a renvoyé ${response.status}. Relancez : \`docker compose restart whisper\` puis attendez ~30–60 s.`,
     )
   }
 
   throw new WhisperUnavailableError(
-    `Whisper a renvoyé ${lastStatus || 'une erreur'}. Vérifiez \`docker compose ps\` et les logs whisper.`,
+    `Whisper (${modelLabel}) a renvoyé ${lastStatus || 'une erreur'}. Vérifiez \`docker compose ps\`.`,
   )
 }

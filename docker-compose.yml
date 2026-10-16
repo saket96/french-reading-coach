@@ -4,16 +4,27 @@ services:
     ports:
       - "9000:9000"
     environment:
-      # base is stable on Mac CPU; French soft-matching covers many near-misses.
-      # For higher accuracy later you can try: ASR_MODEL: small
       ASR_MODEL: base
       ASR_ENGINE: faster_whisper
     volumes:
       - whisper-model-cache:/root/.cache
     restart: unless-stopped
 
+  # Optional higher-accuracy French ASR. Start with:
+  #   docker compose --profile small up -d
+  whisper-small:
+    profiles: ["small"]
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    ports:
+      - "9001:9000"
+    environment:
+      ASR_MODEL: small
+      ASR_ENGINE: faster_whisper
+    volumes:
+      - whisper-small-model-cache:/root/.cache
+    restart: unless-stopped
+
   # Phoneme-level French pronunciation (OpenPronounce, experimental for FR).
-  # First start downloads ~2 GB of Wav2Vec2 weights into pronounce-model-cache.
   pronounce:
     build: ./pronounce
     ports:
@@ -26,13 +37,13 @@ services:
       - pronounce-model-cache:/models
     restart: unless-stopped
 
-  # Vite dev server — opens on http://127.0.0.1:4378 (no separate npm run dev needed)
   web:
     build: ./web
     ports:
       - "4378:4378"
     environment:
       WHISPER_URL: http://whisper:9000
+      WHISPER_SMALL_URL: http://whisper-small:9000
       PRONOUNCE_URL: http://pronounce:8000
     volumes:
       - ./web:/app
@@ -44,5 +55,6 @@ services:
 
 volumes:
   whisper-model-cache:
+  whisper-small-model-cache:
   pronounce-model-cache:
   web_node_modules:

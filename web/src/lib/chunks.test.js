@@ -24,6 +24,10 @@ test('chunkSentences groups by twos', () => {
   ])
 })
 
+test('chunkSentences size 1 is shadowing mode', () => {
+  assert.deepEqual(chunkSentences(['A.', 'B.', 'C.'], 1), ['A.', 'B.', 'C.'])
+})
+
 test('each passage yields multiple practice chunks', () => {
   for (const passage of passages) {
     const chunks = passageChunks(passage.text, 2)

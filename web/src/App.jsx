@@ -4,6 +4,7 @@ import {
   ChevronRight,
   CircleStop,
   Languages,
+  Layers,
   Mic,
   Plus,
   RotateCcw,
@@ -12,6 +13,7 @@ import {
   Volume2,
 } from 'lucide-react'
 import { Button } from './components/ui/button.jsx'
+import { VocabDeck } from './components/VocabDeck.jsx'
 import { FIXTURE_CHUNK_INDEX, FIXTURE_PASSAGE_ID, FIXTURE_TRANSCRIPT } from './fixtures.js'
 import { alignWords, practiceErrors } from './lib/align.js'
 import { findTimingForHyp, playAudioRange } from './lib/audioClip.js'
@@ -40,12 +42,15 @@ import {
   saveVocabulary,
   upsertVocabularyEntry,
 } from './lib/vocabulary.js'
+import { checkWhisperReady } from './lib/whisperHealth.js'
 import { transcribeFrenchAudio, WhisperUnavailableError } from './lib/whisper.js'
 import { passages } from './passages.js'
 
 const PASS_THRESHOLD = 0.7
 const CLICK_LEARN_KEY = 'frc-click-learn'
 const PACE_KEY = 'frc-speaking-pace'
+const MODEL_KEY = 'frc-whisper-model'
+const SHADOW_KEY = 'frc-shadow-mode'
 
 function loadClickLearn() {
   try {
@@ -66,6 +71,24 @@ function loadPace() {
     // ignore
   }
   return 'moyen'
+}
+
+function loadModel() {
+  try {
+    const raw = localStorage.getItem(MODEL_KEY)
+    if (raw === 'small' || raw === 'base') return raw
+  } catch {
+    // ignore
+  }
+  return 'base'
+}
+
+function loadShadow() {
+  try {
+    return localStorage.getItem(SHADOW_KEY) === '1'
+  } catch {
+    return false
+  }
 }
 
 const pickMimeType = () => {
@@ -172,10 +195,15 @@ export default function App() {
   const [lookupBusy, setLookupBusy] = useState(false)
   const [lookupError, setLookupError] = useState('')
   const [showVocab, setShowVocab] = useState(false)
+  const [showDeck, setShowDeck] = useState(false)
   const [guideWordIndex, setGuideWordIndex] = useState(-1)
   const [guideMode, setGuideMode] = useState('') // 'listen' | 'read' | ''
   const [clickLearn, setClickLearn] = useState(() => loadClickLearn())
   const [pace, setPace] = useState(() => loadPace())
+  const [whisperModel, setWhisperModel] = useState(() => loadModel())
+  const [whisperReady, setWhisperReady] = useState('checking') // checking | ready | down
+  const [shadowMode, setShadowMode] = useState(() => loadShadow())
+  const [shadowHeard, setShadowHeard] = useState(false)
 
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
@@ -192,8 +220,8 @@ export default function App() {
 
   const chunks = useMemo(() => {
     if (!activePassage.text?.trim()) return []
-    return passageChunks(activePassage.text, 2)
-  }, [activePassage.text])
+    return passageChunks(activePassage.text, shadowMode ? 1 : 2)
+  }, [activePassage.text, shadowMode])
 
   const safeIndex = Math.min(chunkIndex, Math.max(chunks.length - 1, 0))
   const currentChunk = chunks[safeIndex] ?? ''
@@ -249,6 +277,41 @@ export default function App() {
       // ignore
     }
   }, [pace])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(MODEL_KEY, whisperModel)
+    } catch {
+      // ignore
+    }
+  }, [whisperModel])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SHADOW_KEY, shadowMode ? '1' : '0')
+    } catch {
+      // ignore
+    }
+  }, [shadowMode])
+
+  const selectWhisperModel = (model) => {
+    setWhisperModel(model)
+    setWhisperReady('checking')
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    const ping = async () => {
+      const result = await checkWhisperReady(whisperModel)
+      if (!cancelled) setWhisperReady(result.ready ? 'ready' : 'down')
+    }
+    ping()
+    const id = window.setInterval(ping, 10000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [whisperModel])
 
   const stopGuide = () => {
     guideStopRef.current?.()
@@ -311,6 +374,14 @@ export default function App() {
   const goNextChunk = () => {
     if (isLastChunk) return
     setChunkIndex((value) => value + 1)
+    setShadowHeard(false)
+    resetAttempt()
+  }
+
+  const toggleShadowMode = () => {
+    setShadowMode((value) => !value)
+    setChunkIndex(0)
+    setShadowHeard(false)
     resetAttempt()
   }
 
@@ -367,7 +438,7 @@ export default function App() {
         setAudioUrl(URL.createObjectURL(blob))
         setPhase('transcribing')
         try {
-          const result = await transcribeFrenchAudio(blob)
+          const result = await transcribeFrenchAudio(blob, { model: whisperModel })
           if (!result.text) {
             setError('Whisper n’a renvoyé aucun texte. Réessayez en parlant plus près du micro.')
             setPhase('error')
@@ -440,6 +511,7 @@ export default function App() {
     stopGuide()
     setError('')
     setGuideMode('listen')
+    setShadowHeard(true)
     const tokens = displayTokens
     const text = currentChunk
     let gotBoundary = false
@@ -598,8 +670,8 @@ export default function App() {
           </p>
           <h1 className="mt-1 font-serif text-3xl sm:text-4xl">Coach de lecture française</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Enregistrez à votre rythme, puis recevez le retour. « Clic mot » et l’écoute guidée
-            restent optionnels.
+            Enregistrez à votre rythme, ou activez l’ombre (une phrase). Voyant Whisper + modèle
+            Base/Small en haut.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 self-start">
@@ -611,7 +683,30 @@ export default function App() {
             <Languages className="h-4 w-4" />
             Clic mot {clickLearn ? 'ON' : 'OFF'}
           </Button>
-          <Button variant="outline" onClick={() => setShowVocab((v) => !v)}>
+          <Button
+            variant={shadowMode ? 'default' : 'outline'}
+            onClick={toggleShadowMode}
+            title="Une phrase : écouter le modèle, puis répéter"
+          >
+            Ombre {shadowMode ? 'ON' : 'OFF'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowDeck(true)
+              setShowVocab(false)
+            }}
+          >
+            <Layers className="h-4 w-4" />
+            Révision
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowVocab((v) => !v)
+              setShowDeck(false)
+            }}
+          >
             <BookOpen className="h-4 w-4" />
             Vocabulaire ({vocab.length})
           </Button>
@@ -621,6 +716,45 @@ export default function App() {
           </Button>
         </div>
       </header>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+        <span className="inline-flex items-center gap-2">
+          <span
+            className={
+              'inline-block h-2.5 w-2.5 rounded-full ' +
+              (whisperReady === 'ready'
+                ? 'bg-emerald-500'
+                : whisperReady === 'checking'
+                  ? 'bg-amber-400 animate-pulse'
+                  : 'bg-red-500')
+            }
+            title="État Whisper"
+          />
+          Whisper {whisperReady === 'ready' ? 'prêt' : whisperReady === 'checking' ? '…' : 'down'}
+          <span className="text-muted-foreground">({whisperModel})</span>
+        </span>
+        <span className="text-muted-foreground">Modèle :</span>
+        <Button
+          size="sm"
+          variant={whisperModel === 'base' ? 'default' : 'outline'}
+          onClick={() => selectWhisperModel('base')}
+        >
+          Base
+        </Button>
+        <Button
+          size="sm"
+          variant={whisperModel === 'small' ? 'default' : 'outline'}
+          onClick={() => selectWhisperModel('small')}
+          title="Plus précis en français — nécessite le profil Docker small"
+        >
+          Small
+        </Button>
+        {whisperModel === 'small' && whisperReady === 'down' ? (
+          <span className="text-xs text-wrong">
+            Lancez : <code>docker compose --profile small up -d</code>
+          </span>
+        ) : null}
+      </div>
 
       {clickLearn ? (
         <div className="sticky top-0 z-20 mb-6 rounded-xl border border-ring/25 bg-card/95 p-4 shadow-sm backdrop-blur">
@@ -747,13 +881,28 @@ export default function App() {
         </div>
       )}
 
+      {showDeck ? (
+        <VocabDeck
+          vocab={vocab}
+          onUpdateVocab={setVocab}
+          onSpeak={listenWord}
+          onClose={() => setShowDeck(false)}
+        />
+      ) : null}
+
       {showVocab ? (
         <section className="mb-6 rounded-xl border border-border bg-card p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-serif text-xl">Vocabulaire</h2>
-            <p className="text-xs text-muted-foreground">
-              Traduction FR→EN + exemples dans Reverso Context (nouvel onglet).
-            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => setShowDeck(true)}>
+                <Layers className="h-3.5 w-3.5" />
+                Réviser
+              </Button>
+              <p className="text-xs text-muted-foreground self-center">
+                Traduction FR→EN + Reverso Context
+              </p>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <input
@@ -856,9 +1005,9 @@ export default function App() {
       {chunks.length ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
           <p>
-            Étape <span className="font-semibold text-foreground">{safeIndex + 1}</span> /{' '}
-            {chunks.length} · deux phrases
-          </p>
+          Étape <span className="font-semibold text-foreground">{safeIndex + 1}</span> /{' '}
+          {chunks.length} · {shadowMode ? 'ombre (1 phrase)' : 'deux phrases'}
+        </p>
           <div className="h-2 w-40 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-ring transition-all"
@@ -919,9 +1068,16 @@ export default function App() {
             Ajoutez votre texte ou choisissez un passage de la bibliothèque.
           </p>
         )}
+        {shadowMode && phase === 'idle' ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            Mode ombre : 1) <strong>Écouter (guidé)</strong> 2) <strong>Enregistrer</strong> la même
+            phrase 3) lire le retour.
+            {!shadowHeard ? ' Commencez par écouter le modèle.' : ' Vous pouvez enregistrer.'}
+          </p>
+        ) : null}
         {phase === 'recording' ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Parlez à votre rythme — le retour (mots, liaisons, prononciation) arrive après Stop.
+            Parlez à votre rythme — le retour arrive après Stop.
           </p>
         ) : null}
         {guideMode === 'listen' ? (
@@ -1010,8 +1166,9 @@ export default function App() {
 
       {phase === 'idle' && !error ? (
         <p className="mt-6 rounded-lg border border-dashed border-border bg-card/60 p-4 text-sm text-muted-foreground">
-          Enregistrez les deux phrases à votre rythme, puis lisez la revue. Optionnel : écoute
-          guidée, ou « Clic mot » pour entendre / traduire un mot.
+          {shadowMode
+            ? 'Ombre : écoutez une phrase, répétez-la, puis avancez. Utilisez Révision pour le vocabulaire sauvé.'
+            : 'Enregistrez à votre rythme, puis lisez la revue. Optionnel : Ombre, Clic mot, Révision.'}
         </p>
       ) : null}
 

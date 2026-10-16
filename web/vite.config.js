@@ -3,7 +3,15 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 const whisperUrl = process.env.WHISPER_URL || 'http://127.0.0.1:9000'
+const whisperSmallUrl = process.env.WHISPER_SMALL_URL || 'http://127.0.0.1:9001'
 const pronounceUrl = process.env.PRONOUNCE_URL || 'http://127.0.0.1:8000'
+
+const asrProxy = (target) => ({
+  target,
+  changeOrigin: true,
+  timeout: 180_000,
+  proxyTimeout: 180_000,
+})
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -12,12 +20,20 @@ export default defineConfig({
     port: 4378,
     strictPort: true,
     proxy: {
-      '/asr': {
+      '/asr': asrProxy(whisperUrl),
+      '/asr-small': {
+        ...asrProxy(whisperSmallUrl),
+        rewrite: (path) => path.replace(/^\/asr-small/, '/asr'),
+      },
+      '/whisper-health': {
         target: whisperUrl,
         changeOrigin: true,
-        // Whisper can take a while on first request while the model warms up
-        timeout: 180_000,
-        proxyTimeout: 180_000,
+        rewrite: () => '/docs',
+      },
+      '/whisper-small-health': {
+        target: whisperSmallUrl,
+        changeOrigin: true,
+        rewrite: () => '/docs',
       },
       '/pronunciation': {
         target: pronounceUrl,
