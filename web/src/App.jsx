@@ -481,15 +481,25 @@ export default function App() {
       .trim()
       .replace(/[^\p{L}\p{N}'’-]+/gu, '')
     if (!cleaned) return
+
+    // Pronounce immediately on click
+    speakFrench(cleaned, { rate: 0.62 }).catch(() => {})
+
     setLookupWord(cleaned)
     setLookupBusy(true)
     setLookupError('')
-    setLookupResult(null)
-    setShowVocab(true)
+    setLookupResult({
+      source: cleaned,
+      translated: '',
+      alternatives: [],
+      url: reversoContextUrl(cleaned),
+      provider: 'loading',
+    })
     try {
       const result = await translateFrenchToEnglish(cleaned)
       setLookupResult(result)
       if (result.note) setLookupError(result.note)
+      else setLookupError('')
     } catch (err) {
       setLookupError(err.message || 'Traduction impossible')
       setLookupResult({ source: cleaned, translated: '', url: reversoContextUrl(cleaned) })
@@ -514,14 +524,14 @@ export default function App() {
 
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-4 py-8 sm:px-6">
-      <header className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold tracking-[0.2em] text-ring uppercase">
-            Lecture guidée · Reverso · prononciation
+            Lecture guidée · vocabulaire · prononciation
           </p>
           <h1 className="mt-1 font-serif text-3xl sm:text-4xl">Coach de lecture française</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Mot surligné pendant l’écoute et la lecture, revue ciblée, vocabulaire via Reverso.
+            Cliquez un mot : il est prononcé et traduit en haut. Suivez aussi le surlignage guidé.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 self-start">
@@ -535,6 +545,63 @@ export default function App() {
           </Button>
         </div>
       </header>
+
+      {/* Sticky top translation bar — always visible when a word is selected */}
+      <div className="sticky top-0 z-20 mb-6 rounded-xl border border-ring/25 bg-card/95 p-4 shadow-sm backdrop-blur">
+        {lookupResult || lookupBusy ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Mot sélectionné</p>
+              <p className="mt-1 font-serif text-2xl leading-tight">
+                <span className="text-foreground">{lookupResult?.source || lookupWord}</span>
+                <span className="mx-2 text-muted-foreground">→</span>
+                <span className="text-ring">
+                  {lookupBusy
+                    ? '…'
+                    : lookupResult?.translated || 'voir Reverso Context'}
+                </span>
+              </p>
+              {lookupResult?.alternatives?.length ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Aussi : {lookupResult.alternatives.join(' · ')}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => listenWord(lookupResult?.source || lookupWord)}
+              >
+                <Volume2 className="h-3.5 w-3.5" />
+                Réécouter
+              </Button>
+              <Button
+                size="sm"
+                onClick={saveLookupToVocab}
+                disabled={!lookupResult?.translated}
+              >
+                Sauver
+              </Button>
+              <a
+                className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs hover:bg-muted"
+                href={
+                  lookupResult?.url ||
+                  reversoContextUrl(lookupResult?.source || lookupWord)
+                }
+                target="_blank"
+                rel="noreferrer"
+              >
+                Reverso
+              </a>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Cliquez n’importe quel mot du texte pour l’entendre et voir la traduction ici.
+          </p>
+        )}
+      </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
         <Button
@@ -754,7 +821,7 @@ export default function App() {
                           : 'hover:bg-secondary')
                     }
                     onClick={() => lookup(token.lookup)}
-                    title="Traduire / sauver"
+                    title="Prononcer + traduire"
                   >
                     {token.value}
                   </button>
@@ -834,7 +901,7 @@ export default function App() {
       {phase === 'idle' && !error ? (
         <p className="mt-6 rounded-lg border border-dashed border-border bg-card/60 p-4 text-sm text-muted-foreground">
           Écoutez (guidé) pour suivre le surlignage, puis enregistrez en suivant le curseur. Cliquez un
-          mot pour Reverso et votre carnet de vocabulaire.
+          mot pour l’entendre et le traduire en haut de la page.
         </p>
       ) : null}
 
