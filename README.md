@@ -7,18 +7,17 @@ Local reading practice for B2+ French: work **two sentences at a time**, correct
 - **Step-by-step reading**: each passage is split into pairs of sentences; advance after feedback
 - **Whisper in Docker** (`base`, Faster Whisper, CPU) on port **9000** — word transcript
 - **OpenPronounce in Docker** on port **8000** — phoneme-level French tips (experimental) + listen to the correct form via system TTS
-- **Vite + React** app on **http://127.0.0.1:4378** (proxies `/asr` and `/pronunciation`)
+- **Vite + React** app in Docker on **http://127.0.0.1:4378** (starts with `docker compose`; proxies `/asr` and `/pronunciation`)
 - **12 original** B2+ paragraphs (100–200 words)
 - Green = match, red = wrong or missing, gray = extra. Word score = matched / target words (aim ≥ 70 % before continuing)
 
 ## Requirements
 
 - Docker Desktop
-- Node.js 20+
 - Chrome or Edge (microphone + `MediaRecorder` WebM)
 - Apple Silicon M2 16GB is enough for Whisper `base`; OpenPronounce downloads ~2 GB of models on first start
 
-## Run
+## Run (everything via Docker)
 
 From the repository root:
 
@@ -26,23 +25,33 @@ From the repository root:
 docker compose up -d --build
 ```
 
-Wait until Whisper is ready (first launch can take several minutes). OpenPronounce’s first build/start is longer (image build + model download). Then:
+This starts **Whisper**, **OpenPronounce**, and the **web app** (`npm run dev` inside the `web` container).
 
-```bash
-cd web
-npm install
-npm run dev
-```
+Open **http://127.0.0.1:4378**. Allow the microphone when prompted.
 
-Open the URL Vite prints (dev server on **http://127.0.0.1:4378**). Allow the microphone when prompted.
-
-If only Whisper is up, word feedback still works; pronunciation tips show a clear message until the `pronounce` service is healthy. **Démo sans micro** exercises the highlighter on the first two-sentence step.
+First launch can take several minutes (Whisper model + OpenPronounce image/models). If pronunciation tips are missing, wait until `pronounce` is healthy — word feedback still works with Whisper alone. **Démo sans micro** exercises the highlighter on the first two-sentence step.
 
 Useful checks:
 
 ```bash
 docker compose ps
+docker compose logs -f web
 curl -s http://127.0.0.1:8000/health
+```
+
+Stop everything:
+
+```bash
+docker compose down
+```
+
+### Optional: run the UI on the host instead
+
+If you prefer a local Node install:
+
+```bash
+docker compose up -d whisper pronounce
+cd web && npm install && npm run dev
 ```
 
 ## How practice works
@@ -55,9 +64,9 @@ curl -s http://127.0.0.1:8000/health
 ## Layout
 
 ```
-docker-compose.yml    Whisper (:9000) + OpenPronounce (:8000)
+docker-compose.yml    Whisper (:9000) + OpenPronounce (:8000) + web (:4378)
 pronounce/            FastAPI wrapper around openpronounce (lang=fr)
-web/                  Vite + React UI
+web/                  Vite + React UI (Dockerfile runs npm run dev)
   src/lib/chunks.js   Split passage → 2-sentence steps
   src/lib/pronounce.js  Client for /pronunciation
   src/lib/speak.js    Browser fr-FR TTS for the correct reading

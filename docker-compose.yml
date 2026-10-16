@@ -24,6 +24,23 @@ services:
       - pronounce-model-cache:/models
     restart: unless-stopped
 
+  # Vite dev server — opens on http://127.0.0.1:4378 (no separate npm run dev needed)
+  web:
+    build: ./web
+    ports:
+      - "4378:4378"
+    environment:
+      WHISPER_URL: http://whisper:9000
+      PRONOUNCE_URL: http://pronounce:8000
+    volumes:
+      - ./web:/app
+      - web_node_modules:/app/node_modules
+    depends_on:
+      - whisper
+      - pronounce
+    restart: unless-stopped
+
 volumes:
   whisper-model-cache:
   pronounce-model-cache:
+  web_node_modules:
