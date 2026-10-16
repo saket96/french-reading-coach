@@ -228,6 +228,12 @@ export default function App() {
   const isLastChunk = chunks.length === 0 || safeIndex >= chunks.length - 1
   const displayTokens = useMemo(() => splitDisplayTokens(currentChunk || ''), [currentChunk])
   const wordCount = useMemo(() => countGuidedWords(currentChunk || ''), [currentChunk])
+  const fullText = activePassage?.text?.trim() || ''
+  const fullDisplayTokens = useMemo(() => splitDisplayTokens(fullText), [fullText])
+  const fullWordCount = useMemo(() => countGuidedWords(fullText), [fullText])
+  const showingFullPassage = guideMode === 'listen-all'
+  const viewTokens = showingFullPassage ? fullDisplayTokens : displayTokens
+  const viewHasText = showingFullPassage ? Boolean(fullText) : Boolean(currentChunk)
 
   const alignment = useMemo(() => {
     if (!transcript || !currentChunk) return null
@@ -512,21 +518,62 @@ export default function App() {
   const listenWpmForPace = () =>
     pace === 'libre' ? PACE_PRESETS.moyen.wpm : paceConfig.wpm
 
-  /** Speak the full passage (all steps) at the selected listen pace. */
+  /** Speak the full passage with word highlight across the whole text. */
   const listenFullPassage = async () => {
-    const text = activePassage?.text?.trim()
+    const text = fullText
     if (!text) return
     stopGuide()
     setError('')
     setGuideMode('listen-all')
     setGuideWordIndex(-1)
+    const tokens = fullDisplayTokens
+    let gotBoundary = false
+
+    const fallbackTimer = window.setTimeout(() => {
+      if (gotBoundary || guideStopRef.current) return
+      guideStopRef.current = startReadingGuide(fullWordCount, {
+        wpm: listenWpmForPace(),
+        onWord: (index) => setGuideWordIndex(index),
+        onDone: () => {
+          setGuideWordIndex(-1)
+          setGuideMode('')
+          guideStopRef.current = null
+        },
+      })
+    }, 900)
+
     try {
-      await speakFrench(text, { rate: listenRateForPace() })
-      setGuideMode('')
+      await speakFrench(text, {
+        rate: listenRateForPace(),
+        onBoundary: (charIndex) => {
+          gotBoundary = true
+          window.clearTimeout(fallbackTimer)
+          guideStopRef.current?.()
+          guideStopRef.current = null
+          const idx = wordIndexFromCharIndex(text, tokens, charIndex)
+          if (idx >= 0) setGuideWordIndex(idx)
+        },
+      })
+      window.clearTimeout(fallbackTimer)
+      if (!guideStopRef.current) {
+        setGuideWordIndex(-1)
+        setGuideMode('')
+      }
     } catch {
-      setGuideMode('')
+      window.clearTimeout(fallbackTimer)
+      if (!guideStopRef.current) {
+        guideStopRef.current = startReadingGuide(fullWordCount, {
+          wpm: listenWpmForPace(),
+          onWord: (index) => setGuideWordIndex(index),
+          onDone: () => {
+            setGuideWordIndex(-1)
+            setGuideMode('')
+            guideStopRef.current = null
+          },
+        })
+      }
       setError(
-        'La voix système n’a pas démarré. Sur Mac : Réglages système → Accessibilité → Contenu lu à voix haute → téléchargez une voix française.',
+        'La voix système n’a pas démarré. Sur Mac : Réglages système → Accessibilité → Contenu lu à voix haute → téléchargez une voix française. Le surlignage du texte entier continue sans audio.',
       )
     }
   }
@@ -1030,14 +1077,24 @@ export default function App() {
       {chunks.length ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
           <p>
-          Étape <span className="font-semibold text-foreground">{safeIndex + 1}</span> /{' '}
-          {chunks.length} · {shadowMode ? 'ombre (1 phrase)' : 'deux phrases'}
-        </p>
+            {showingFullPassage ? (
+              <>
+                Texte entier · écoute ({paceConfig.label})
+              </>
+            ) : (
+              <>
+                Étape <span className="font-semibold text-foreground">{safeIndex + 1}</span> /{' '}
+                {chunks.length} · {shadowMode ? 'ombre (1 phrase)' : 'deux phrases'}
+              </>
+            )}
+          </p>
           <div className="h-2 w-40 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-ring transition-all"
               style={{
-                width: `${((safeIndex + (phase === 'done' && wordPass ? 1 : 0)) / chunks.length) * 100}%`,
+                width: showingFullPassage
+                  ? `${fullWordCount > 0 && guideWordIndex >= 0 ? ((guideWordIndex + 1) / fullWordCount) * 100 : 0}%`
+                  : `${((safeIndex + (phase === 'done' && wordPass ? 1 : 0)) / chunks.length) * 100}%`,
               }}
             />
           </div>
@@ -1048,13 +1105,14 @@ export default function App() {
         <p className="mb-3 text-xs uppercase tracking-wide text-muted-foreground">
           {activePassage.topic}
           {activePassage.id === CUSTOM_PASSAGE_ID ? ' · texte perso' : ''}
+          {showingFullPassage ? ' · texte entier' : ''}
         </p>
         <h2 className="mb-4 font-serif text-2xl">{activePassage.title}</h2>
-        {currentChunk ? (
+        {viewHasText ? (
           <p className="passage-text">
             {(() => {
               let wordOrdinal = -1
-              return displayTokens.map((token, index) => {
+              return viewTokens.map((token, index) => {
                 if (token.type !== 'word') {
                   return <span key={`t-${index}`}>{token.value}</span>
                 }
@@ -1063,7 +1121,7 @@ export default function App() {
                 const passed = guideWordIndex > wordOrdinal && guideWordIndex >= 0
                 return (
                   <button
-                    key={`w-${index}-${token.lookup}`}
+                    key={`${showingFullPassage ? 'full' : 'step'}-w-${index}-${token.lookup}`}
                     type="button"
                     className={
                       'inline rounded-sm px-0.5 transition-colors ' +
@@ -1093,7 +1151,7 @@ export default function App() {
             Ajoutez votre texte ou choisissez un passage de la bibliothèque.
           </p>
         )}
-        {shadowMode && phase === 'idle' ? (
+        {shadowMode && phase === 'idle' && !showingFullPassage ? (
           <p className="mt-3 text-sm text-muted-foreground">
             Mode ombre : 1) <strong>Écouter (guidé)</strong> 2) <strong>Enregistrer</strong> la même
             phrase 3) lire le retour.
@@ -1112,7 +1170,8 @@ export default function App() {
         ) : null}
         {guideMode === 'listen-all' ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Lecture du texte entier ({paceConfig.label})…
+            Texte entier ({paceConfig.label}) — suivez le mot surligné. Stop écoute pour revenir à
+            l’étape.
           </p>
         ) : null}
       </section>
