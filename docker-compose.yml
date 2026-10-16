@@ -1,0 +1,60 @@
+services:
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    ports:
+      - "9000:9000"
+    environment:
+      ASR_MODEL: base
+      ASR_ENGINE: faster_whisper
+    volumes:
+      - whisper-model-cache:/root/.cache
+    restart: unless-stopped
+
+  # Optional higher-accuracy French ASR. Start with:
+  #   docker compose --profile small up -d
+  whisper-small:
+    profiles: ["small"]
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    ports:
+      - "9001:9000"
+    environment:
+      ASR_MODEL: small
+      ASR_ENGINE: faster_whisper
+    volumes:
+      - whisper-small-model-cache:/root/.cache
+    restart: unless-stopped
+
+  # Phoneme-level French pronunciation (OpenPronounce, experimental for FR).
+  pronounce:
+    build: ./pronounce
+    ports:
+      - "8000:8000"
+    environment:
+      OPENPRONOUNCE_DEVICE: cpu
+      OPENPRONOUNCE_TTS: gtts
+      HF_HOME: /models
+    volumes:
+      - pronounce-model-cache:/models
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    ports:
+      - "4378:4378"
+    environment:
+      WHISPER_URL: http://whisper:9000
+      WHISPER_SMALL_URL: http://whisper-small:9000
+      PRONOUNCE_URL: http://pronounce:8000
+    volumes:
+      - ./web:/app
+      - web_node_modules:/app/node_modules
+    depends_on:
+      - whisper
+      - pronounce
+    restart: unless-stopped
+
+volumes:
+  whisper-model-cache:
+  whisper-small-model-cache:
+  pronounce-model-cache:
+  web_node_modules:
