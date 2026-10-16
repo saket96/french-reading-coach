@@ -82,38 +82,51 @@ async function tryReverso(text) {
 
 export async function translateFrenchToEnglish(word) {
   const text = String(word ?? '').trim()
-  if (!text) throw new Error('Mot vide')
+  if (!text) throw new Error('Texte vide')
 
   const url = reversoContextUrl(text)
-  const fromReverso = await tryReverso(text)
-  if (fromReverso) {
-    return {
-      source: text,
-      translated: fromReverso.translated,
-      alternatives: fromReverso.alternatives,
-      url,
-      provider: 'reverso',
+  const isPhrase = /\s/.test(text)
+
+  // Full sentences: MyMemory first — more reliable sentence-level FR→EN from Docker.
+  // Single words: try Reverso, then fall back to MyMemory.
+  const order = isPhrase
+    ? ['mymemory', 'reverso']
+    : ['reverso', 'mymemory']
+
+  for (const provider of order) {
+    if (provider === 'reverso') {
+      const fromReverso = await tryReverso(text)
+      if (fromReverso?.translated) {
+        return {
+          source: text,
+          translated: fromReverso.translated,
+          alternatives: fromReverso.alternatives,
+          url,
+          provider: 'reverso',
+        }
+      }
+      continue
+    }
+    try {
+      const result = await translateWithMyMemory(text)
+      return {
+        source: text,
+        translated: result.translated,
+        alternatives: result.alternatives,
+        url,
+        provider: 'mymemory',
+      }
+    } catch {
+      // try next
     }
   }
 
-  try {
-    const result = await translateWithMyMemory(text)
-    return {
-      source: text,
-      translated: result.translated,
-      alternatives: result.alternatives,
-      url,
-      provider: 'mymemory',
-    }
-  } catch {
-    // Still return the Reverso link so the learner can look up the word
-    return {
-      source: text,
-      translated: '',
-      alternatives: [],
-      url,
-      provider: 'reverso-link',
-      note: 'Ouvrez Reverso Context pour la traduction (API bloquée depuis Docker).',
-    }
+  return {
+    source: text,
+    translated: '',
+    alternatives: [],
+    url,
+    provider: 'reverso-link',
+    note: 'Ouvrez Reverso Context pour la traduction (API bloquée depuis Docker).',
   }
 }

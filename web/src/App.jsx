@@ -34,6 +34,10 @@ import {
   stopSpeaking,
   wordIndexFromCharIndex,
 } from './lib/speak.js'
+import {
+  sentenceTextFromTokens,
+  splitDisplayTokensWithSentences,
+} from './lib/sentences.js'
 import { splitDisplayTokens, tokenizeFrench } from './lib/tokenize.js'
 import { reversoContextUrl, translateFrenchToEnglish } from './lib/translate.js'
 import {
@@ -48,6 +52,7 @@ import { passages } from './passages.js'
 
 const PASS_THRESHOLD = 0.7
 const CLICK_LEARN_KEY = 'frc-click-learn'
+const CLICK_TARGET_KEY = 'frc-click-target'
 const PACE_KEY = 'frc-speaking-pace'
 const MODEL_KEY = 'frc-whisper-model'
 const SHADOW_KEY = 'frc-shadow-mode'
@@ -60,6 +65,16 @@ function loadClickLearn() {
   } catch {
     return false
   }
+}
+
+function loadClickTarget() {
+  try {
+    const raw = localStorage.getItem(CLICK_TARGET_KEY)
+    if (raw === 'phrase' || raw === 'word') return raw
+  } catch {
+    // ignore
+  }
+  return 'word'
 }
 
 function loadPace() {
@@ -199,6 +214,8 @@ export default function App() {
   const [guideWordIndex, setGuideWordIndex] = useState(-1)
   const [guideMode, setGuideMode] = useState('') // 'listen' | 'listen-all' | 'read' | ''
   const [clickLearn, setClickLearn] = useState(() => loadClickLearn())
+  const [clickTarget, setClickTarget] = useState(() => loadClickTarget()) // word | phrase
+  const [selectedSentence, setSelectedSentence] = useState(-1)
   const [pace, setPace] = useState(() => loadPace())
   const [whisperModel, setWhisperModel] = useState(() => loadModel())
   const [whisperReady, setWhisperReady] = useState('checking') // checking | ready | down
@@ -229,7 +246,10 @@ export default function App() {
   const displayTokens = useMemo(() => splitDisplayTokens(currentChunk || ''), [currentChunk])
   const wordCount = useMemo(() => countGuidedWords(currentChunk || ''), [currentChunk])
   const fullText = activePassage?.text?.trim() || ''
-  const fullDisplayTokens = useMemo(() => splitDisplayTokens(fullText), [fullText])
+  const fullDisplayTokens = useMemo(
+    () => splitDisplayTokensWithSentences(fullText),
+    [fullText],
+  )
   const fullWordCount = useMemo(() => countGuidedWords(fullText), [fullText])
   // Word offset of the current step inside the full passage (always show full text).
   const chunkWordOffset = useMemo(() => {
@@ -280,6 +300,14 @@ export default function App() {
       // ignore
     }
   }, [clickLearn])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CLICK_TARGET_KEY, clickTarget)
+    } catch {
+      // ignore
+    }
+  }, [clickTarget])
 
   useEffect(() => {
     try {
@@ -676,13 +704,22 @@ export default function App() {
     listenHypWord(hyp)
   }
 
-  const lookup = async (word, { speak = true } = {}) => {
-    const cleaned = String(word ?? '')
-      .trim()
-      .replace(/[^\p{L}\p{N}'’-]+/gu, '')
+  const lookup = async (text, { speak = true, kind = 'word' } = {}) => {
+    let cleaned
+    if (kind === 'sentence') {
+      cleaned = String(text ?? '')
+        .trim()
+        .replace(/\s+/g, ' ')
+    } else {
+      cleaned = String(text ?? '')
+        .trim()
+        .replace(/[^\p{L}\p{N}'’-]+/gu, '')
+    }
     if (!cleaned) return
 
-    if (speak) speakFrench(cleaned, { rate: 0.62 }).catch(() => {})
+    if (speak) {
+      speakFrench(cleaned, { rate: kind === 'sentence' ? 0.7 : 0.62 }).catch(() => {})
+    }
 
     setLookupWord(cleaned)
     setLookupBusy(true)
@@ -693,24 +730,52 @@ export default function App() {
       alternatives: [],
       url: reversoContextUrl(cleaned),
       provider: 'loading',
+      kind,
     })
     try {
       const result = await translateFrenchToEnglish(cleaned)
-      setLookupResult(result)
+      setLookupResult({ ...result, kind })
       if (result.note) setLookupError(result.note)
       else setLookupError('')
     } catch (err) {
       setLookupError(err.message || 'Traduction impossible')
-      setLookupResult({ source: cleaned, translated: '', url: reversoContextUrl(cleaned) })
+      setLookupResult({
+        source: cleaned,
+        translated: '',
+        url: reversoContextUrl(cleaned),
+        kind,
+      })
     } finally {
       setLookupBusy(false)
     }
   }
 
-  /** Passage taps: only when "Clic mot" mode is on */
-  const onPassageWordClick = (word) => {
+  /** Passage taps: word or whole sentence when Clic is on */
+  const onPassageWordClick = (token) => {
     if (!clickLearn) return
-    lookup(word, { speak: true })
+    if (clickTarget === 'phrase') {
+      const index = token?.sentenceIndex ?? -1
+      if (index < 0) return
+      const line = sentenceTextFromTokens(fullDisplayTokens, index)
+      if (!line) return
+      setSelectedSentence(index)
+      lookup(line, { speak: true, kind: 'sentence' })
+      return
+    }
+    setSelectedSentence(-1)
+    lookup(token?.lookup || token, { speak: true, kind: 'word' })
+  }
+
+  /** Drag-select any span in the passage → translate that selection */
+  const onPassageMouseUp = () => {
+    if (!clickLearn) return
+    const selection = window.getSelection?.()
+    if (!selection || selection.isCollapsed) return
+    const raw = String(selection.toString() || '').trim().replace(/\s+/g, ' ')
+    if (raw.length < 2) return
+    const kind = /\s/.test(raw) || /[.!?…]/.test(raw) ? 'sentence' : 'word'
+    if (kind === 'sentence') setSelectedSentence(-1)
+    lookup(raw, { speak: true, kind })
   }
 
   const toggleClickLearn = () => {
@@ -720,6 +785,7 @@ export default function App() {
         setLookupResult(null)
         setLookupWord('')
         setLookupError('')
+        setSelectedSentence(-1)
       }
       return next
     })
@@ -756,11 +822,34 @@ export default function App() {
           <Button
             variant={clickLearn ? 'default' : 'outline'}
             onClick={toggleClickLearn}
-            title="Activer ou désactiver : clic = prononcer + traduire"
+            title="Activer : clic ou sélection pour entendre + traduire"
           >
             <Languages className="h-4 w-4" />
-            Clic mot {clickLearn ? 'ON' : 'OFF'}
+            Clic {clickLearn ? 'ON' : 'OFF'}
           </Button>
+          {clickLearn ? (
+            <>
+              <Button
+                size="sm"
+                variant={clickTarget === 'word' ? 'default' : 'outline'}
+                onClick={() => {
+                  setClickTarget('word')
+                  setSelectedSentence(-1)
+                }}
+                title="Clic = un mot"
+              >
+                Mot
+              </Button>
+              <Button
+                size="sm"
+                variant={clickTarget === 'phrase' ? 'default' : 'outline'}
+                onClick={() => setClickTarget('phrase')}
+                title="Clic = toute la phrase (meilleure traduction)"
+              >
+                Phrase
+              </Button>
+            </>
+          ) : null}
           <Button
             variant={shadowMode ? 'default' : 'outline'}
             onClick={toggleShadowMode}
@@ -837,14 +926,23 @@ export default function App() {
       {clickLearn ? (
         <div className="sticky top-0 z-20 mb-6 rounded-xl border border-ring/25 bg-card/95 p-4 shadow-sm backdrop-blur">
           {lookupResult || lookupBusy ? (
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Mot sélectionné
+                  {lookupResult?.kind === 'sentence' || clickTarget === 'phrase'
+                    ? 'Phrase sélectionnée'
+                    : 'Mot sélectionné'}
                 </p>
-                <p className="mt-1 font-serif text-2xl leading-tight">
+                <p
+                  className={
+                    'mt-1 font-serif leading-snug ' +
+                    (lookupResult?.kind === 'sentence' ? 'text-lg sm:text-xl' : 'text-2xl')
+                  }
+                >
                   <span className="text-foreground">{lookupResult?.source || lookupWord}</span>
-                  <span className="mx-2 text-muted-foreground">→</span>
+                </p>
+                <p className="mt-2 text-base sm:text-lg">
+                  <span className="text-muted-foreground">→ </span>
                   <span className="text-ring">
                     {lookupBusy
                       ? '…'
@@ -861,7 +959,11 @@ export default function App() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => listenWord(lookupResult?.source || lookupWord)}
+                  onClick={() =>
+                    speakFrench(lookupResult?.source || lookupWord, {
+                      rate: lookupResult?.kind === 'sentence' ? 0.7 : 0.62,
+                    }).catch(() => {})
+                  }
                 >
                   <Volume2 className="h-3.5 w-3.5" />
                   Réécouter
@@ -888,7 +990,8 @@ export default function App() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Mode actif — cliquez un mot du texte pour l’entendre et voir la traduction ici.
+              Mode {clickTarget === 'phrase' ? 'phrase' : 'mot'} — cliquez une ligne pour traduire
+              toute la phrase, ou sélectionnez du texte avec la souris.
             </p>
           )}
         </div>
@@ -1118,14 +1221,26 @@ export default function App() {
         </p>
         <h2 className="mb-4 font-serif text-2xl">{activePassage.title}</h2>
         {fullText ? (
-          <p className="passage-text">
+          <p className="passage-text select-text" onMouseUp={onPassageMouseUp}>
             {(() => {
               let wordOrdinal = -1
               const stepStart = chunkWordOffset
               const stepEnd = chunkWordOffset + wordCount
               return fullDisplayTokens.map((token, index) => {
                 if (token.type !== 'word') {
-                  return <span key={`t-${index}`}>{token.value}</span>
+                  const inSelected =
+                    clickLearn &&
+                    clickTarget === 'phrase' &&
+                    selectedSentence >= 0 &&
+                    token.sentenceIndex === selectedSentence
+                  return (
+                    <span
+                      key={`t-${index}`}
+                      className={inSelected ? 'bg-secondary/80' : undefined}
+                    >
+                      {token.value}
+                    </span>
+                  )
                 }
                 wordOrdinal += 1
                 const inCurrentStep = wordOrdinal >= stepStart && wordOrdinal < stepEnd
@@ -1135,6 +1250,11 @@ export default function App() {
                   wordOrdinal < guideWordIndex &&
                   (listeningAll || (listeningStep && inCurrentStep))
                 const outsideStep = !listeningAll && !inCurrentStep
+                const inSelectedSentence =
+                  clickLearn &&
+                  clickTarget === 'phrase' &&
+                  selectedSentence >= 0 &&
+                  token.sentenceIndex === selectedSentence
                 return (
                   <button
                     key={`full-w-${index}-${token.lookup}`}
@@ -1145,17 +1265,21 @@ export default function App() {
                         ? 'guide-word-active'
                         : passed
                           ? 'guide-word-passed'
-                          : outsideStep
-                            ? 'text-muted-foreground/55'
-                            : clickLearn
-                              ? 'hover:bg-secondary cursor-pointer'
-                              : 'cursor-text')
+                          : inSelectedSentence
+                            ? 'bg-secondary ring-1 ring-ring/30'
+                            : outsideStep
+                              ? 'text-muted-foreground/55'
+                              : clickLearn
+                                ? 'hover:bg-secondary cursor-pointer'
+                                : 'cursor-text')
                     }
-                    onClick={() => onPassageWordClick(token.lookup)}
+                    onClick={() => onPassageWordClick(token)}
                     title={
                       clickLearn
-                        ? 'Prononcer + traduire'
-                        : 'Activez « Clic mot » pour entendre et traduire'
+                        ? clickTarget === 'phrase'
+                          ? 'Traduire toute la phrase'
+                          : 'Prononcer + traduire ce mot'
+                        : 'Activez « Clic » pour entendre et traduire'
                     }
                   >
                     {token.value}
