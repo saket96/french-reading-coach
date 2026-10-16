@@ -24,9 +24,15 @@ import {
   PronounceUnavailableError,
 } from './lib/pronounce.js'
 import { buildFocusReview } from './lib/review.js'
-import { speakFrench, stopSpeaking } from './lib/speak.js'
+import { countGuidedWords } from './lib/guided.js'
+import {
+  speakFrench,
+  startReadingGuide,
+  stopSpeaking,
+  wordIndexFromCharIndex,
+} from './lib/speak.js'
 import { splitDisplayTokens, tokenizeFrench } from './lib/tokenize.js'
-import { googleTranslateUrl, translateFrenchToEnglish } from './lib/translate.js'
+import { reversoContextUrl, translateFrenchToEnglish } from './lib/translate.js'
 import {
   loadVocabulary,
   removeVocabularyEntry,
@@ -130,11 +136,14 @@ export default function App() {
   const [lookupBusy, setLookupBusy] = useState(false)
   const [lookupError, setLookupError] = useState('')
   const [showVocab, setShowVocab] = useState(false)
+  const [guideWordIndex, setGuideWordIndex] = useState(-1)
+  const [guideMode, setGuideMode] = useState('') // 'listen' | 'read' | ''
 
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
   const streamRef = useRef(null)
   const timerRef = useRef(null)
+  const guideStopRef = useRef(null)
 
   const activePassage = useMemo(() => {
     if (sourceMode === 'custom') return customPassage(customText)
@@ -149,6 +158,8 @@ export default function App() {
   const safeIndex = Math.min(chunkIndex, Math.max(chunks.length - 1, 0))
   const currentChunk = chunks[safeIndex] ?? ''
   const isLastChunk = chunks.length === 0 || safeIndex >= chunks.length - 1
+  const displayTokens = useMemo(() => splitDisplayTokens(currentChunk || ''), [currentChunk])
+  const wordCount = useMemo(() => countGuidedWords(currentChunk || ''), [currentChunk])
 
   const alignment = useMemo(() => {
     if (!transcript || !currentChunk) return null
@@ -183,11 +194,20 @@ export default function App() {
     saveVocabulary(vocab)
   }, [vocab])
 
+  const stopGuide = () => {
+    guideStopRef.current?.()
+    guideStopRef.current = null
+    setGuideWordIndex(-1)
+    setGuideMode('')
+    stopSpeaking()
+  }
+
   useEffect(() => {
     return () => {
       if (timerRef.current) window.clearInterval(timerRef.current)
       streamRef.current?.getTracks().forEach((track) => track.stop())
       if (audioUrl) URL.revokeObjectURL(audioUrl)
+      guideStopRef.current?.()
       stopSpeaking()
     }
   }, [audioUrl])
@@ -208,7 +228,7 @@ export default function App() {
     setPronounceTips(null)
     setPronounceNote('')
     clearAttemptAudio()
-    stopSpeaking()
+    stopGuide()
   }
 
   const applyCustomText = () => {
@@ -258,6 +278,7 @@ export default function App() {
     setTimedWords([])
     setPronounceTips(null)
     setPronounceNote('')
+    stopGuide()
     if (!currentChunk) {
       setError('Ajoutez un texte ou choisissez un passage avant d’enregistrer.')
       return
@@ -283,6 +304,7 @@ export default function App() {
       }
       recorder.onstop = async () => {
         stopTimer()
+        stopGuide()
         stream.getTracks().forEach((track) => track.stop())
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
         clearAttemptAudio()
@@ -323,6 +345,17 @@ export default function App() {
       recorder.start()
       startTimer()
       setPhase('recording')
+      // Guided reading highlight while the learner speaks
+      setGuideMode('read')
+      guideStopRef.current = startReadingGuide(wordCount, {
+        wpm: 130,
+        onWord: (index) => setGuideWordIndex(index),
+        onDone: () => {
+          setGuideWordIndex(-1)
+          setGuideMode('')
+          guideStopRef.current = null
+        },
+      })
     } catch {
       setError(
         'Micro refusé ou indisponible. Autorisez le micro dans Chrome ou Edge, ou utilisez la démo sans micro.',
@@ -355,11 +388,64 @@ export default function App() {
     setPhase('done')
   }
 
-  const listenChunk = () => {
+  const listenChunk = async () => {
     if (!currentChunk) return
-    speakFrench(currentChunk).catch(() => {
-      setError('Impossible de lire le texte à voix haute. Vérifiez les voix système fr-FR.')
-    })
+    stopGuide()
+    setError('')
+    setGuideMode('listen')
+    const tokens = displayTokens
+    const text = currentChunk
+    let gotBoundary = false
+
+    // If the browser never fires word boundaries, fall back to timed highlight
+    const fallbackTimer = window.setTimeout(() => {
+      if (gotBoundary || guideStopRef.current) return
+      guideStopRef.current = startReadingGuide(wordCount, {
+        wpm: 135,
+        onWord: (index) => setGuideWordIndex(index),
+        onDone: () => {
+          setGuideWordIndex(-1)
+          setGuideMode('')
+          guideStopRef.current = null
+        },
+      })
+    }, 900)
+
+    try {
+      await speakFrench(text, {
+        rate: 0.9,
+        onBoundary: (charIndex) => {
+          gotBoundary = true
+          window.clearTimeout(fallbackTimer)
+          // Prefer TTS sync over the timed guide
+          guideStopRef.current?.()
+          guideStopRef.current = null
+          const idx = wordIndexFromCharIndex(text, tokens, charIndex)
+          if (idx >= 0) setGuideWordIndex(idx)
+        },
+      })
+      window.clearTimeout(fallbackTimer)
+      if (!guideStopRef.current) {
+        setGuideWordIndex(-1)
+        setGuideMode('')
+      }
+    } catch {
+      window.clearTimeout(fallbackTimer)
+      if (!guideStopRef.current) {
+        guideStopRef.current = startReadingGuide(wordCount, {
+          wpm: 135,
+          onWord: (index) => setGuideWordIndex(index),
+          onDone: () => {
+            setGuideWordIndex(-1)
+            setGuideMode('')
+            guideStopRef.current = null
+          },
+        })
+      }
+      setError(
+        'La voix système n’a pas démarré. Sur Mac : Réglages système → Accessibilité → Contenu lu à voix haute → téléchargez une voix française. Le surlignage guidé continue sans audio.',
+      )
+    }
   }
 
   const listenWord = (word) => {
@@ -405,7 +491,7 @@ export default function App() {
       setLookupResult(result)
     } catch (err) {
       setLookupError(err.message || 'Traduction impossible')
-      setLookupResult({ source: cleaned, translated: '', url: googleTranslateUrl(cleaned) })
+      setLookupResult({ source: cleaned, translated: '', url: reversoContextUrl(cleaned) })
     } finally {
       setLookupBusy(false)
     }
@@ -416,7 +502,7 @@ export default function App() {
     setVocab((prev) =>
       upsertVocabularyEntry(prev, {
         word: lookupResult.source,
-        translation: lookupResult.translated || '(voir Google Translate)',
+        translation: lookupResult.translated || '(voir Reverso)',
       }),
     )
   }
@@ -430,12 +516,11 @@ export default function App() {
       <header className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold tracking-[0.2em] text-ring uppercase">
-            Lecture · vocabulaire · prononciation
+            Lecture guidée · Reverso · prononciation
           </p>
           <h1 className="mt-1 font-serif text-3xl sm:text-4xl">Coach de lecture française</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Deux phrases à la fois, revue ciblée (liaisons, terminaisons), écoute de vos erreurs, et
-            vocabulaire avec Google Translate.
+            Mot surligné pendant l’écoute et la lecture, revue ciblée, vocabulaire via Reverso.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 self-start">
@@ -520,7 +605,7 @@ export default function App() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-serif text-xl">Vocabulaire</h2>
             <p className="text-xs text-muted-foreground">
-              Cliquez un mot du texte ou du retour pour traduire (Google Translate).
+              Cliquez un mot pour traduire avec Reverso (meilleur contexte FR→EN).
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -541,15 +626,22 @@ export default function App() {
           {lookupError ? <p className="text-sm text-wrong">{lookupError}</p> : null}
           {lookupResult ? (
             <div className="rounded-md bg-muted/50 px-3 py-2 text-sm flex flex-wrap items-center justify-between gap-2">
-              <p>
-                <span className="font-medium">{lookupResult.source}</span>
-                {lookupResult.translated ? (
-                  <>
-                    {' '}
-                    → <span className="text-ring">{lookupResult.translated}</span>
-                  </>
+              <div>
+                <p>
+                  <span className="font-medium">{lookupResult.source}</span>
+                  {lookupResult.translated ? (
+                    <>
+                      {' '}
+                      → <span className="text-ring">{lookupResult.translated}</span>
+                    </>
+                  ) : null}
+                </p>
+                {lookupResult.alternatives?.length ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Aussi : {lookupResult.alternatives.join(' · ')}
+                  </p>
                 ) : null}
-              </p>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" onClick={() => listenWord(lookupResult.source)}>
                   <Volume2 className="h-3.5 w-3.5" />
@@ -560,11 +652,11 @@ export default function App() {
                 </Button>
                 <a
                   className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs hover:bg-muted"
-                  href={lookupResult.url || googleTranslateUrl(lookupResult.source)}
+                  href={lookupResult.url || reversoContextUrl(lookupResult.source)}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Ouvrir Google Translate
+                  Ouvrir Reverso
                 </a>
               </div>
             </div>
@@ -632,28 +724,48 @@ export default function App() {
         <h2 className="mb-4 font-serif text-2xl">{activePassage.title}</h2>
         {currentChunk ? (
           <p className="passage-text">
-            {splitDisplayTokens(currentChunk).map((token, index) => {
-              if (token.type !== 'word') {
-                return <span key={`t-${index}`}>{token.value}</span>
-              }
-              return (
-                <button
-                  key={`w-${index}-${token.lookup}`}
-                  type="button"
-                  className="inline rounded-sm hover:bg-secondary px-0.5"
-                  onClick={() => lookup(token.lookup)}
-                  title="Traduire / sauver"
-                >
-                  {token.value}
-                </button>
-              )
-            })}
+            {(() => {
+              let wordOrdinal = -1
+              return displayTokens.map((token, index) => {
+                if (token.type !== 'word') {
+                  return <span key={`t-${index}`}>{token.value}</span>
+                }
+                wordOrdinal += 1
+                const active = guideWordIndex === wordOrdinal
+                const passed = guideWordIndex > wordOrdinal && guideWordIndex >= 0
+                return (
+                  <button
+                    key={`w-${index}-${token.lookup}`}
+                    type="button"
+                    className={
+                      'inline rounded-sm px-0.5 transition-colors ' +
+                      (active
+                        ? 'guide-word-active'
+                        : passed
+                          ? 'guide-word-passed'
+                          : 'hover:bg-secondary')
+                    }
+                    onClick={() => lookup(token.lookup)}
+                    title="Traduire / sauver"
+                  >
+                    {token.value}
+                  </button>
+                )
+              })
+            })()}
           </p>
         ) : (
           <p className="text-sm text-muted-foreground">
             Ajoutez votre texte ou choisissez un passage de la bibliothèque.
           </p>
         )}
+        {guideMode ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {guideMode === 'listen'
+              ? 'Lecture guidée — suivez le mot surligné pendant l’écoute.'
+              : 'Lecture guidée — lisez à voix haute en suivant le surlignage.'}
+          </p>
+        ) : null}
       </section>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -669,17 +781,26 @@ export default function App() {
             disabled={phase === 'transcribing' || !currentChunk}
           >
             <Mic className="h-4 w-4" />
-            Enregistrer
+            Enregistrer (guidé)
           </Button>
         )}
         <Button variant="secondary" onClick={resetAttempt} disabled={phase === 'recording'}>
           <RotateCcw className="h-4 w-4" />
           Réessayer
         </Button>
-        <Button variant="outline" onClick={listenChunk} disabled={!currentChunk || phase === 'recording'}>
+        <Button
+          variant="outline"
+          onClick={listenChunk}
+          disabled={!currentChunk || phase === 'recording'}
+        >
           <Volume2 className="h-4 w-4" />
-          Écouter le modèle
+          Écouter (guidé)
         </Button>
+        {guideMode ? (
+          <Button variant="ghost" onClick={stopGuide}>
+            Stop guide
+          </Button>
+        ) : null}
         {audioUrl ? (
           <Button variant="outline" onClick={() => document.getElementById('replay')?.play()}>
             <Volume2 className="h-4 w-4" />
@@ -704,8 +825,8 @@ export default function App() {
 
       {phase === 'idle' && !error ? (
         <p className="mt-6 rounded-lg border border-dashed border-border bg-card/60 p-4 text-sm text-muted-foreground">
-          Lisez les deux phrases, écoutez le modèle, enregistrez, puis lisez la revue (mots, liaisons,
-          terminaisons). Cliquez un mot pour Google Translate et votre carnet de vocabulaire.
+          Écoutez (guidé) pour suivre le surlignage, puis enregistrez en suivant le curseur. Cliquez un
+          mot pour Reverso et votre carnet de vocabulaire.
         </p>
       ) : null}
 

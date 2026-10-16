@@ -1,39 +1,67 @@
 /**
- * Translate French → English via Google's public gtx endpoint (no API key).
- * Falls back to a Google Translate URL the user can open.
+ * Translate French → English via Reverso (context-aware), proxied by Vite
+ * to avoid browser CORS. Falls back to a Reverso Context URL.
  */
-export function googleTranslateUrl(word, { sl = 'fr', tl = 'en' } = {}) {
-  const q = encodeURIComponent(word)
-  return `https://translate.google.com/?sl=${sl}&tl=${tl}&text=${q}&op=translate`
+export function reversoContextUrl(word, { from = 'french', to = 'english' } = {}) {
+  const q = encodeURIComponent(String(word ?? '').trim())
+  return `https://context.reverso.net/translation/${from}-${to}/${q}`
 }
 
 export async function translateFrenchToEnglish(word) {
   const text = String(word ?? '').trim()
   if (!text) throw new Error('Mot vide')
 
-  const url =
-    'https://translate.googleapis.com/translate_a/single?client=gtx&sl=fr&tl=en&dt=t&q=' +
-    encodeURIComponent(text)
-
   let response
   try {
-    response = await fetch(url)
+    response = await fetch('/reverso-translate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        format: 'text',
+        from: 'fra',
+        to: 'eng',
+        input: text,
+        options: {
+          sentenceSplitter: true,
+          origin: 'translation.web',
+          contextResults: true,
+          languageDetection: true,
+        },
+      }),
+    })
   } catch {
-    throw new Error('Google Translate inaccessible. Vérifiez votre connexion.')
+    throw new Error('Reverso inaccessible. Vérifiez votre connexion.')
   }
 
   if (!response.ok) {
-    throw new Error(`Google Translate a renvoyé ${response.status}`)
+    throw new Error(`Reverso a renvoyé ${response.status}`)
   }
 
   const data = await response.json()
-  const translated = Array.isArray(data?.[0])
-    ? data[0]
-        .map((part) => part?.[0] ?? '')
-        .join('')
-        .trim()
-    : ''
+  const translated = Array.isArray(data?.translation)
+    ? data.translation.join('').trim()
+    : typeof data?.translation === 'string'
+      ? data.translation.trim()
+      : ''
 
-  if (!translated) throw new Error('Traduction vide')
-  return { source: text, translated, url: googleTranslateUrl(text) }
+  const alternatives = []
+  const context = data?.contextResults?.results ?? data?.contextResults ?? []
+  if (Array.isArray(context)) {
+    for (const row of context.slice(0, 5)) {
+      const alt = row?.translation ?? row?.trans ?? row?.target
+      if (typeof alt === 'string' && alt.trim()) alternatives.push(alt.trim())
+    }
+  }
+
+  if (!translated && !alternatives.length) throw new Error('Traduction Reverso vide')
+
+  return {
+    source: text,
+    translated: translated || alternatives[0] || '',
+    alternatives: alternatives.filter((a) => a !== translated).slice(0, 4),
+    url: reversoContextUrl(text),
+  }
 }

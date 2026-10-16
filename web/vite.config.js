@@ -24,6 +24,17 @@ export default defineConfig({
         target: pronounceUrl,
         changeOrigin: true,
       },
+      // Reverso translation API (avoids browser CORS)
+      '/reverso-translate': {
+        target: 'https://api.reverso.net',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/reverso-translate/, '/translate/v1/translation'),
+        headers: {
+          Origin: 'https://www.reverso.net',
+          Referer: 'https://www.reverso.net/',
+        },
+      },
     },
   },
 })
