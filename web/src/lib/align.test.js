@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { tokenizeFrench } from './tokenize.js'
-import { alignWords } from './align.js'
+import { alignWords, frenchMatchKind, practiceErrors } from './align.js'
 import { passages } from '../passages.js'
 
 test('tokenize keeps accents and French elisions', () => {
@@ -29,9 +29,26 @@ test('passages are original B2 length', () => {
   }
 })
 
-test('alignment scores matches over target words', () => {
+test('frenchMatchKind treats accents and gender as close', () => {
+  assert.equal(frenchMatchKind('télétravail', 'teletravail'), 'close')
+  assert.equal(frenchMatchKind('réservé', 'reserve'), 'close')
+  assert.equal(frenchMatchKind('un', 'une'), 'close')
+  assert.equal(frenchMatchKind('imposé', 'imposées'), 'close')
+  assert.equal(frenchMatchKind("s'est", 'ces'), 'close')
+  assert.equal(frenchMatchKind('bilan', 'porter'), 'different')
+})
+
+test('alignment soft-matches French near forms', () => {
+  const target = tokenizeFrench('Le télétravail est réservé aux professions.')
+  const hyp = tokenizeFrench('Le teletravail est reserve aux professions.')
+  const result = alignWords(target, hyp)
+  assert.ok(result.score >= 0.8)
+  assert.ok(result.ops.every((op) => op.type === 'match' || op.type === 'close'))
+})
+
+test('alignment still flags real word errors', () => {
   const target = tokenizeFrench('Le télétravail change la vie des salariés.')
-  const hyp = tokenizeFrench('Le teletravail change la ville des salariés extra')
+  const hyp = tokenizeFrench('Le chaton change la ville des salariés extra')
   const result = alignWords(target, hyp)
   assert.equal(result.targetCount, 7)
   assert.ok(result.ops.some((op) => op.type === 'wrong' || op.type === 'missing'))
@@ -45,4 +62,15 @@ test('fixture-like near-perfect reading scores high', () => {
   const result = alignWords(tokens, tokens)
   assert.equal(result.score, 1)
   assert.equal(result.matched, result.targetCount)
+})
+
+test('practiceErrors skips tiny function words', () => {
+  const ops = [
+    { type: 'wrong', target: 'le', hyp: 'télé' },
+    { type: 'wrong', target: 'professions', hyp: 'professionnels' },
+    { type: 'close', target: 'un', hyp: 'une' },
+  ]
+  const list = practiceErrors(ops)
+  assert.equal(list.length, 1)
+  assert.equal(list[0].target, 'professions')
 })

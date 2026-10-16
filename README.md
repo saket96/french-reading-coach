@@ -1,6 +1,6 @@
 # Coach de lecture française
 
-Local B2+ French reading coach: **record at your own pace**, get feedback after each 2-sentence step, optional guided listen, and vocabulary via Reverso Context. Whisper + OpenPronounce run in Docker on your machine.
+Local B2+ French reading coach: **record at your own pace**, get French-aware feedback after each 2-sentence step, optional guided listen, and vocabulary via Reverso Context. Whisper (`small`) + OpenPronounce run in Docker on your machine.
 
 ## Run on your Mac
 
@@ -30,7 +30,8 @@ Stop: `docker compose down`
 - **Mon texte** — paste your own French
 - **Vocabulary** — click a word for an FR→EN gloss; **Exemples Reverso** opens Reverso Context in your browser (Reverso’s API is blocked from Docker by Cloudflare)
 - **Revue** — words, liaisons, terminaisons, phonemes after each step
-- Docker services: Whisper `:9000`, OpenPronounce `:8000`, web `:4378`
+- Docker services: Whisper `small` `:9000`, OpenPronounce `:8000`, web `:4378`
+- French-aware scoring: accents / genre / petites variantes ASR = « presque », pas une fausse erreur
 
 ## Requirements
 

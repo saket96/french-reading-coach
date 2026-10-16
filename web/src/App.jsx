@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { Button } from './components/ui/button.jsx'
 import { FIXTURE_CHUNK_INDEX, FIXTURE_PASSAGE_ID, FIXTURE_TRANSCRIPT } from './fixtures.js'
-import { alignWords } from './lib/align.js'
+import { alignWords, practiceErrors } from './lib/align.js'
 import { findTimingForHyp, playAudioRange } from './lib/audioClip.js'
 import { passageChunks } from './lib/chunks.js'
 import { CUSTOM_PASSAGE_ID, customPassage, loadCustomText, saveCustomText } from './lib/customText.js'
@@ -98,6 +98,18 @@ function FeedbackChips({ ops, onWordClick }) {
               className={`${common} bg-emerald-100 text-match`}
               onClick={() => clickable && onWordClick(word)}
               title="Cliquer pour traduire / vocabulaire"
+            >
+              {op.target}
+            </span>
+          )
+        }
+        if (op.type === 'close') {
+          return (
+            <span
+              key={`${op.type}-${index}`}
+              className={`${common} bg-amber-100 text-amber-900`}
+              title={`presque (entendu : ${op.hyp}) — accent, genre ou variante ASR`}
+              onClick={() => clickable && onWordClick(op.target)}
             >
               {op.target}
             </span>
@@ -573,9 +585,9 @@ export default function App() {
     )
   }
 
-  const wrongPairs = (alignment?.ops ?? [])
-    .map((op, index) => ({ ...op, index }))
-    .filter((op) => op.type === 'wrong' && op.hyp)
+  const wrongPairs = practiceErrors(alignment?.ops ?? [], {
+    asrUnreliable: Boolean(alignment?.asrUnreliable),
+  })
 
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-4 py-8 sm:px-6">
@@ -1040,18 +1052,32 @@ export default function App() {
 
           <div className="rounded-lg border border-border bg-card p-4">
             <p className="mb-3 text-xs uppercase tracking-wide text-muted-foreground">
-              Mots — cliquez pour traduire · vert = OK · rouge = écart
+              Mots — vert = OK · ambre = presque (accent/genre/ASR) · rouge = à retravailler
             </p>
             <FeedbackChips ops={alignment?.ops ?? []} onWordClick={lookup} />
           </div>
 
+          {alignment?.asrUnreliable ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+              <p className="font-medium">Whisper a peut‑être mal entendu ce tour</p>
+              <p className="mt-1 text-muted-foreground">
+                Beaucoup d’écarts viennent souvent de la reconnaissance, pas de votre lecture
+                (décalage mot à mot). Réessayez un peu plus lentement et près du micro — ou
+                écoutez d’abord le modèle.
+              </p>
+            </div>
+          ) : null}
+
           {wrongPairs.length ? (
             <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-              <h3 className="font-serif text-xl">Vos erreurs — écouter</h3>
+              <h3 className="font-serif text-xl">À retravailler — écouter</h3>
+              <p className="text-xs text-muted-foreground">
+                Uniquement les écarts nets (pas les petites variantes FR / ASR).
+              </p>
               <ul className="space-y-2">
-                {wrongPairs.map((op) => (
+                {wrongPairs.map((op, index) => (
                   <li
-                    key={`${op.target}-${op.index}`}
+                    key={`${op.target}-${op.hyp}-${index}`}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/60 px-3 py-2 text-sm"
                   >
                     <span>
@@ -1063,7 +1089,11 @@ export default function App() {
                       <Button size="sm" variant="outline" onClick={() => listenWord(op.target)}>
                         Modèle
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => listenSpokenClip(op.hyp, op.index)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => listenSpokenClip(op.hyp, index)}
+                      >
                         Ce que j’ai dit
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => lookup(op.target)}>

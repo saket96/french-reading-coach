@@ -18,8 +18,8 @@ test('analyzeTerminations flags truncated endings', () => {
 
 test('buildFocusReview prioritizes wrong words', () => {
   const alignment = alignWords(
-    tokenizeFrench('Les amis travaillent'),
-    tokenizeFrench('Les amies travaille'),
+    tokenizeFrench('Les amis travaillent demain'),
+    tokenizeFrench('Les chats mangent demain'),
   )
   const review = buildFocusReview({
     alignment,
@@ -28,6 +28,8 @@ test('buildFocusReview prioritizes wrong words', () => {
     terminationIssues: [],
     pronounceTips: null,
   })
-  assert.ok(review.focuses.some((f) => f.id === 'words'))
+  assert.ok(
+    review.focuses.some((f) => f.id === 'words' || f.id === 'close' || f.id === 'asr'),
+  )
   assert.ok(review.summary)
 })

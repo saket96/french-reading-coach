@@ -10,9 +10,19 @@ export function buildFocusReview({
 }) {
   const focuses = []
   const wrongOps = (alignment?.ops ?? []).filter((op) => op.type === 'wrong' || op.type === 'missing')
+  const closeOps = (alignment?.ops ?? []).filter((op) => op.type === 'close')
   const extraOps = (alignment?.ops ?? []).filter((op) => op.type === 'extra')
 
-  if (wrongOps.length) {
+  if (alignment?.asrUnreliable) {
+    focuses.push({
+      id: 'asr',
+      title: 'Reconnaissance incertaine',
+      detail:
+        'Whisper semble avoir décalé beaucoup de mots. Réenregistrez plus lentement avant de conclure sur la prononciation.',
+    })
+  }
+
+  if (wrongOps.length && !alignment?.asrUnreliable) {
     const words = wrongOps
       .map((op) => op.target)
       .filter(Boolean)
@@ -26,6 +36,17 @@ export function buildFocusReview({
       words: wrongOps
         .filter((op) => op.type === 'wrong')
         .map((op) => ({ target: op.target, hyp: op.hyp })),
+    })
+  }
+
+  if (closeOps.length) {
+    focuses.push({
+      id: 'close',
+      title: 'Presque juste (FR)',
+      detail: `Variantes d’accent, genre/nombre ou ASR : ${closeOps
+        .slice(0, 5)
+        .map((op) => `« ${op.target} » ≈ « ${op.hyp} »`)
+        .join(', ')}. Moins grave qu’une vraie erreur de lecture.`,
     })
   }
 
