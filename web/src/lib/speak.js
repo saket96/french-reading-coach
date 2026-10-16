@@ -36,7 +36,7 @@ export async function pickFrenchVoice() {
  * Speak French text. Optional onBoundary(charIndex) for guided highlighting.
  * Tolerates missing fr-FR voices and cancel/interrupted races on Chrome/Safari.
  */
-export async function speakFrench(text, { rate = 0.92, onBoundary } = {}) {
+export async function speakFrench(text, { rate = 0.7, onBoundary } = {}) {
   if (!text || typeof window === 'undefined' || !window.speechSynthesis) {
     throw new Error('Synthèse vocale indisponible dans ce navigateur')
   }
@@ -140,12 +140,13 @@ export function wordIndexFromCharIndex(text, displayTokens, charIndex) {
  * Guided highlight while the learner reads (no TTS): advance word-by-word.
  * Returns a stop() function.
  */
-export function startReadingGuide(wordCount, { wpm = 140, onWord, onDone } = {}) {
+export function startReadingGuide(wordCount, { wpm = 80, onWord, onDone } = {}) {
   if (wordCount <= 0) {
     onDone?.()
     return () => {}
   }
-  const msPerWord = Math.max(280, Math.round(60000 / wpm))
+  // Learner pace: ~80 WPM, at least ~550ms per word so humans can follow
+  const msPerWord = Math.max(550, Math.round(60000 / wpm))
   let index = 0
   onWord?.(0)
   const id = window.setInterval(() => {

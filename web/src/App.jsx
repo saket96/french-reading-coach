@@ -348,7 +348,7 @@ export default function App() {
       // Guided reading highlight while the learner speaks
       setGuideMode('read')
       guideStopRef.current = startReadingGuide(wordCount, {
-        wpm: 130,
+        wpm: 75,
         onWord: (index) => setGuideWordIndex(index),
         onDone: () => {
           setGuideWordIndex(-1)
@@ -401,7 +401,7 @@ export default function App() {
     const fallbackTimer = window.setTimeout(() => {
       if (gotBoundary || guideStopRef.current) return
       guideStopRef.current = startReadingGuide(wordCount, {
-        wpm: 135,
+        wpm: 80,
         onWord: (index) => setGuideWordIndex(index),
         onDone: () => {
           setGuideWordIndex(-1)
@@ -413,7 +413,7 @@ export default function App() {
 
     try {
       await speakFrench(text, {
-        rate: 0.9,
+        rate: 0.68,
         onBoundary: (charIndex) => {
           gotBoundary = true
           window.clearTimeout(fallbackTimer)
@@ -433,7 +433,7 @@ export default function App() {
       window.clearTimeout(fallbackTimer)
       if (!guideStopRef.current) {
         guideStopRef.current = startReadingGuide(wordCount, {
-          wpm: 135,
+          wpm: 80,
           onWord: (index) => setGuideWordIndex(index),
           onDone: () => {
             setGuideWordIndex(-1)
@@ -450,12 +450,12 @@ export default function App() {
 
   const listenWord = (word) => {
     if (!word) return
-    speakFrench(word, { rate: 0.85 }).catch(() => {})
+    speakFrench(word, { rate: 0.62 }).catch(() => {})
   }
 
   const listenHypWord = (hyp) => {
     if (!hyp) return
-    speakFrench(`Vous avez dit : ${hyp}`, { rate: 0.9 }).catch(() => {})
+    speakFrench(`Vous avez dit : ${hyp}`, { rate: 0.68 }).catch(() => {})
   }
 
   const listenSpokenClip = async (hyp, hypIndex) => {
