@@ -231,9 +231,14 @@ export default function App() {
   const fullText = activePassage?.text?.trim() || ''
   const fullDisplayTokens = useMemo(() => splitDisplayTokens(fullText), [fullText])
   const fullWordCount = useMemo(() => countGuidedWords(fullText), [fullText])
-  const showingFullPassage = guideMode === 'listen-all'
-  const viewTokens = showingFullPassage ? fullDisplayTokens : displayTokens
-  const viewHasText = showingFullPassage ? Boolean(fullText) : Boolean(currentChunk)
+  // Word offset of the current step inside the full passage (always show full text).
+  const chunkWordOffset = useMemo(() => {
+    if (!chunks.length || safeIndex <= 0) return 0
+    const prefix = chunks.slice(0, safeIndex).join(' ')
+    return countGuidedWords(prefix)
+  }, [chunks, safeIndex])
+  const listeningAll = guideMode === 'listen-all'
+  const listeningStep = guideMode === 'listen'
 
   const alignment = useMemo(() => {
     if (!transcript || !currentChunk) return null
@@ -586,6 +591,7 @@ export default function App() {
     setShadowHeard(true)
     const tokens = displayTokens
     const text = currentChunk
+    const offset = chunkWordOffset
     let gotBoundary = false
 
     // If the browser never fires word boundaries, fall back to timed highlight
@@ -593,7 +599,7 @@ export default function App() {
       if (gotBoundary || guideStopRef.current) return
       guideStopRef.current = startReadingGuide(wordCount, {
         wpm: listenWpmForPace(),
-        onWord: (index) => setGuideWordIndex(index),
+        onWord: (index) => setGuideWordIndex(offset + index),
         onDone: () => {
           setGuideWordIndex(-1)
           setGuideMode('')
@@ -615,7 +621,7 @@ export default function App() {
           guideStopRef.current?.()
           guideStopRef.current = null
           const idx = wordIndexFromCharIndex(text, tokens, charIndex)
-          if (idx >= 0) setGuideWordIndex(idx)
+          if (idx >= 0) setGuideWordIndex(offset + idx)
         },
       })
       window.clearTimeout(fallbackTimer)
@@ -628,7 +634,7 @@ export default function App() {
       if (!guideStopRef.current) {
         guideStopRef.current = startReadingGuide(wordCount, {
           wpm: listenWpm,
-          onWord: (index) => setGuideWordIndex(index),
+          onWord: (index) => setGuideWordIndex(offset + index),
           onDone: () => {
             setGuideWordIndex(-1)
             setGuideMode('')
@@ -945,9 +951,13 @@ export default function App() {
           />
           <div className="flex flex-wrap gap-2">
             <Button onClick={applyCustomText}>Utiliser ce texte</Button>
-            <Button variant="outline" onClick={listenChunk} disabled={!currentChunk}>
+            <Button
+              variant="outline"
+              onClick={listenFullPassage}
+              disabled={!fullText || phase === 'recording'}
+            >
               <Volume2 className="h-4 w-4" />
-              Écouter
+              Écouter tout
             </Button>
           </div>
         </div>
@@ -1077,14 +1087,13 @@ export default function App() {
       {chunks.length ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
           <p>
-            {showingFullPassage ? (
-              <>
-                Texte entier · écoute ({paceConfig.label})
-              </>
+            {listeningAll ? (
+              <>Texte entier · écoute ({paceConfig.label})</>
             ) : (
               <>
                 Étape <span className="font-semibold text-foreground">{safeIndex + 1}</span> /{' '}
-                {chunks.length} · {shadowMode ? 'ombre (1 phrase)' : 'deux phrases'}
+                {chunks.length} · {shadowMode ? 'ombre (1 phrase)' : 'deux phrases'} · texte
+                complet affiché
               </>
             )}
           </p>
@@ -1092,7 +1101,7 @@ export default function App() {
             <div
               className="h-full rounded-full bg-ring transition-all"
               style={{
-                width: showingFullPassage
+                width: listeningAll
                   ? `${fullWordCount > 0 && guideWordIndex >= 0 ? ((guideWordIndex + 1) / fullWordCount) * 100 : 0}%`
                   : `${((safeIndex + (phase === 'done' && wordPass ? 1 : 0)) / chunks.length) * 100}%`,
               }}
@@ -1105,23 +1114,30 @@ export default function App() {
         <p className="mb-3 text-xs uppercase tracking-wide text-muted-foreground">
           {activePassage.topic}
           {activePassage.id === CUSTOM_PASSAGE_ID ? ' · texte perso' : ''}
-          {showingFullPassage ? ' · texte entier' : ''}
+          {listeningAll ? ' · écoute complète' : ' · texte entier'}
         </p>
         <h2 className="mb-4 font-serif text-2xl">{activePassage.title}</h2>
-        {viewHasText ? (
+        {fullText ? (
           <p className="passage-text">
             {(() => {
               let wordOrdinal = -1
-              return viewTokens.map((token, index) => {
+              const stepStart = chunkWordOffset
+              const stepEnd = chunkWordOffset + wordCount
+              return fullDisplayTokens.map((token, index) => {
                 if (token.type !== 'word') {
                   return <span key={`t-${index}`}>{token.value}</span>
                 }
                 wordOrdinal += 1
+                const inCurrentStep = wordOrdinal >= stepStart && wordOrdinal < stepEnd
                 const active = guideWordIndex === wordOrdinal
-                const passed = guideWordIndex > wordOrdinal && guideWordIndex >= 0
+                const passed =
+                  guideWordIndex >= 0 &&
+                  wordOrdinal < guideWordIndex &&
+                  (listeningAll || (listeningStep && inCurrentStep))
+                const outsideStep = !listeningAll && !inCurrentStep
                 return (
                   <button
-                    key={`${showingFullPassage ? 'full' : 'step'}-w-${index}-${token.lookup}`}
+                    key={`full-w-${index}-${token.lookup}`}
                     type="button"
                     className={
                       'inline rounded-sm px-0.5 transition-colors ' +
@@ -1129,9 +1145,11 @@ export default function App() {
                         ? 'guide-word-active'
                         : passed
                           ? 'guide-word-passed'
-                          : clickLearn
-                            ? 'hover:bg-secondary cursor-pointer'
-                            : 'cursor-text')
+                          : outsideStep
+                            ? 'text-muted-foreground/55'
+                            : clickLearn
+                              ? 'hover:bg-secondary cursor-pointer'
+                              : 'cursor-text')
                     }
                     onClick={() => onPassageWordClick(token.lookup)}
                     title={
@@ -1151,7 +1169,7 @@ export default function App() {
             Ajoutez votre texte ou choisissez un passage de la bibliothèque.
           </p>
         )}
-        {shadowMode && phase === 'idle' && !showingFullPassage ? (
+        {shadowMode && phase === 'idle' && !listeningAll ? (
           <p className="mt-3 text-sm text-muted-foreground">
             Mode ombre : 1) <strong>Écouter (guidé)</strong> 2) <strong>Enregistrer</strong> la même
             phrase 3) lire le retour.
@@ -1160,18 +1178,19 @@ export default function App() {
         ) : null}
         {phase === 'recording' ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Parlez à votre rythme — le retour arrive après Stop.
+            Parlez à votre rythme — le retour arrive après Stop. (Étape en surbrillance dans le
+            texte.)
           </p>
         ) : null}
         {guideMode === 'listen' ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Écoute guidée ({paceConfig.label}) — suivez le mot surligné.
+            Écoute guidée de l’étape ({paceConfig.label}) — le reste du texte reste visible en
+            gris.
           </p>
         ) : null}
         {guideMode === 'listen-all' ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Texte entier ({paceConfig.label}) — suivez le mot surligné. Stop écoute pour revenir à
-            l’étape.
+            Texte entier ({paceConfig.label}) — suivez le mot surligné.
           </p>
         ) : null}
       </section>
