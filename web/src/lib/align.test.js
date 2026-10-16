@@ -4,14 +4,17 @@ import { tokenizeFrench } from './tokenize.js'
 import { alignWords } from './align.js'
 import { passages } from '../passages.js'
 
-test('tokenize keeps accents and strips punctuation', () => {
-  assert.deepEqual(tokenizeFrench('L’été, d’un côté : « déjà » !'), [
-    'l',
-    'été',
-    'd',
-    'un',
+test('tokenize keeps accents and French elisions', () => {
+  assert.deepEqual(tokenizeFrench("L'été, d'un côté : « déjà » !"), [
+    "l'été",
+    "d'un",
     'côté',
     'déjà',
+  ])
+  assert.deepEqual(tokenizeFrench("l'avenir et aujourd'hui"), [
+    "l'avenir",
+    'et',
+    "aujourd'hui",
   ])
 })
 

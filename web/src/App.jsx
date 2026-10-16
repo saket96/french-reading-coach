@@ -25,7 +25,7 @@ import {
 } from './lib/pronounce.js'
 import { buildFocusReview } from './lib/review.js'
 import { speakFrench, stopSpeaking } from './lib/speak.js'
-import { tokenizeFrench } from './lib/tokenize.js'
+import { splitDisplayTokens, tokenizeFrench } from './lib/tokenize.js'
 import { googleTranslateUrl, translateFrenchToEnglish } from './lib/translate.js'
 import {
   loadVocabulary,
@@ -632,17 +632,22 @@ export default function App() {
         <h2 className="mb-4 font-serif text-2xl">{activePassage.title}</h2>
         {currentChunk ? (
           <p className="passage-text">
-            {tokenizeFrench(currentChunk).map((word, index) => (
-              <button
-                key={`${word}-${index}`}
-                type="button"
-                className="mr-1.5 inline rounded-sm hover:bg-secondary px-0.5"
-                onClick={() => lookup(word)}
-                title="Traduire / sauver"
-              >
-                {word}
-              </button>
-            ))}
+            {splitDisplayTokens(currentChunk).map((token, index) => {
+              if (token.type !== 'word') {
+                return <span key={`t-${index}`}>{token.value}</span>
+              }
+              return (
+                <button
+                  key={`w-${index}-${token.lookup}`}
+                  type="button"
+                  className="inline rounded-sm hover:bg-secondary px-0.5"
+                  onClick={() => lookup(token.lookup)}
+                  title="Traduire / sauver"
+                >
+                  {token.value}
+                </button>
+              )
+            })}
           </p>
         ) : (
           <p className="text-sm text-muted-foreground">
