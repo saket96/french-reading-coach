@@ -197,7 +197,7 @@ export default function App() {
   const [showVocab, setShowVocab] = useState(false)
   const [showDeck, setShowDeck] = useState(false)
   const [guideWordIndex, setGuideWordIndex] = useState(-1)
-  const [guideMode, setGuideMode] = useState('') // 'listen' | 'read' | ''
+  const [guideMode, setGuideMode] = useState('') // 'listen' | 'listen-all' | 'read' | ''
   const [clickLearn, setClickLearn] = useState(() => loadClickLearn())
   const [pace, setPace] = useState(() => loadPace())
   const [whisperModel, setWhisperModel] = useState(() => loadModel())
@@ -506,6 +506,31 @@ export default function App() {
     setPhase('done')
   }
 
+  const listenRateForPace = () =>
+    pace === 'libre' ? PACE_PRESETS.moyen.ttsRate : paceConfig.ttsRate
+
+  const listenWpmForPace = () =>
+    pace === 'libre' ? PACE_PRESETS.moyen.wpm : paceConfig.wpm
+
+  /** Speak the full passage (all steps) at the selected listen pace. */
+  const listenFullPassage = async () => {
+    const text = activePassage?.text?.trim()
+    if (!text) return
+    stopGuide()
+    setError('')
+    setGuideMode('listen-all')
+    setGuideWordIndex(-1)
+    try {
+      await speakFrench(text, { rate: listenRateForPace() })
+      setGuideMode('')
+    } catch {
+      setGuideMode('')
+      setError(
+        'La voix système n’a pas démarré. Sur Mac : Réglages système → Accessibilité → Contenu lu à voix haute → téléchargez une voix française.',
+      )
+    }
+  }
+
   const listenChunk = async () => {
     if (!currentChunk) return
     stopGuide()
@@ -520,7 +545,7 @@ export default function App() {
     const fallbackTimer = window.setTimeout(() => {
       if (gotBoundary || guideStopRef.current) return
       guideStopRef.current = startReadingGuide(wordCount, {
-        wpm: pace === 'libre' ? PACE_PRESETS.moyen.wpm : paceConfig.wpm,
+        wpm: listenWpmForPace(),
         onWord: (index) => setGuideWordIndex(index),
         onDone: () => {
           setGuideWordIndex(-1)
@@ -530,8 +555,8 @@ export default function App() {
       })
     }, 900)
 
-    const listenWpm = pace === 'libre' ? PACE_PRESETS.moyen.wpm : paceConfig.wpm
-    const listenRate = pace === 'libre' ? PACE_PRESETS.moyen.ttsRate : paceConfig.ttsRate
+    const listenWpm = listenWpmForPace()
+    const listenRate = listenRateForPace()
 
     try {
       await speakFrench(text, {
@@ -1085,6 +1110,11 @@ export default function App() {
             Écoute guidée ({paceConfig.label}) — suivez le mot surligné.
           </p>
         ) : null}
+        {guideMode === 'listen-all' ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Lecture du texte entier ({paceConfig.label})…
+          </p>
+        ) : null}
       </section>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -1105,8 +1135,8 @@ export default function App() {
           ))}
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        L’enregistrement est libre (votre vitesse). Ces réglages ne concernent que « Écouter
-        (guidé) ».
+        L’enregistrement est libre (votre vitesse). Ces réglages concernent « Écouter tout » et
+        « Écouter (guidé) ».
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -1131,13 +1161,23 @@ export default function App() {
         </Button>
         <Button
           variant="outline"
+          onClick={listenFullPassage}
+          disabled={!activePassage?.text?.trim() || phase === 'recording'}
+          title="Lire tout le passage d’un coup"
+        >
+          <Volume2 className="h-4 w-4" />
+          Écouter tout
+        </Button>
+        <Button
+          variant="outline"
           onClick={listenChunk}
           disabled={!currentChunk || phase === 'recording'}
+          title="Lire seulement l’étape actuelle avec surlignage"
         >
           <Volume2 className="h-4 w-4" />
           Écouter (guidé)
         </Button>
-        {guideMode === 'listen' ? (
+        {guideMode === 'listen' || guideMode === 'listen-all' ? (
           <Button variant="ghost" onClick={stopGuide}>
             Stop écoute
           </Button>
