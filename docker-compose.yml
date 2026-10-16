@@ -10,5 +10,20 @@ services:
       - whisper-model-cache:/root/.cache
     restart: unless-stopped
 
+  # Phoneme-level French pronunciation (OpenPronounce, experimental for FR).
+  # First start downloads ~2 GB of Wav2Vec2 weights into pronounce-model-cache.
+  pronounce:
+    build: ./pronounce
+    ports:
+      - "8000:8000"
+    environment:
+      OPENPRONOUNCE_DEVICE: cpu
+      OPENPRONOUNCE_TTS: gtts
+      HF_HOME: /models
+    volumes:
+      - pronounce-model-cache:/models
+    restart: unless-stopped
+
 volumes:
   whisper-model-cache:
+  pronounce-model-cache:

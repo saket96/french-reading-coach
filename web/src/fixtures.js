@@ -1,6 +1,14 @@
 import { passages } from './passages.js'
+import { passageChunks } from './lib/chunks.js'
 
-/** Deliberately imperfect reading of the télétravail passage, for UI demos without a mic. */
-export const FIXTURE_TRANSCRIPT = `Le télétravail longtemps considéré comme un privilege réservé à quelques professions s’est imposé dans de nombreux secteurs. Son bilan reste pourtant nuancé. D’un côté les salariés gagnent du temps de trajet organisent plus librement leur journée et trouvent parfois un meilleur équilibre entre vie professionnelle et vie personnelle. De l’autre l’isolement la dilution des frontières entre bureau et maison et la pression d’être constamment joignable pèsent sur la santé. Les entreprises hésitent entre la réduction des surfaces de bureaux et le besoin de préserver une culture commune. Les managers doivent apprendre à évaluer le travail par les résultats plutôt que par la présence physique ce qui suppose de la confiance. Enfin ce mode d’organisation n’est pas accessible à tous soignants caissiers artisans et ouvriers restent sur site. Une politique sérieuse devrait combiner souplesse droit à la déconnexion et espaces de coworking de proximité afin d’éviter qu’une pratique devenue banale n’aggrave les inégalités entre métiers.`
-
+/** First 2-sentence chunk of télétravail, with deliberate word errors for demos. */
 export const FIXTURE_PASSAGE_ID = passages[0].id
+export const FIXTURE_CHUNK_INDEX = 0
+
+const firstChunk = passageChunks(passages[0].text, 2)[0]
+
+/** Imperfect reading of the first practice step only. */
+export const FIXTURE_TRANSCRIPT = firstChunk
+  .replace('privilège', 'privilege')
+  .replace('domicile', 'maison')
+  .replace(/,/g, '')

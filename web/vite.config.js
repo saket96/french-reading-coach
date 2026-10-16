@@ -13,6 +13,14 @@ export default defineConfig({
         target: 'http://127.0.0.1:9000',
         changeOrigin: true,
       },
+      '/pronunciation': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/phonemes': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
     },
   },
 })
