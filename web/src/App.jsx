@@ -43,6 +43,17 @@ import { transcribeFrenchAudio, WhisperUnavailableError } from './lib/whisper.js
 import { passages } from './passages.js'
 
 const PASS_THRESHOLD = 0.7
+const CLICK_LEARN_KEY = 'frc-click-learn'
+
+function loadClickLearn() {
+  try {
+    const raw = localStorage.getItem(CLICK_LEARN_KEY)
+    if (raw === null) return false
+    return raw === '1' || raw === 'true'
+  } catch {
+    return false
+  }
+}
 
 const pickMimeType = () => {
   const candidates = ['audio/webm;codecs=opus', 'audio/webm']
@@ -138,6 +149,7 @@ export default function App() {
   const [showVocab, setShowVocab] = useState(false)
   const [guideWordIndex, setGuideWordIndex] = useState(-1)
   const [guideMode, setGuideMode] = useState('') // 'listen' | 'read' | ''
+  const [clickLearn, setClickLearn] = useState(() => loadClickLearn())
 
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
@@ -193,6 +205,14 @@ export default function App() {
   useEffect(() => {
     saveVocabulary(vocab)
   }, [vocab])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CLICK_LEARN_KEY, clickLearn ? '1' : '0')
+    } catch {
+      // ignore
+    }
+  }, [clickLearn])
 
   const stopGuide = () => {
     guideStopRef.current?.()
@@ -476,14 +496,13 @@ export default function App() {
     listenHypWord(hyp)
   }
 
-  const lookup = async (word) => {
+  const lookup = async (word, { speak = true } = {}) => {
     const cleaned = String(word ?? '')
       .trim()
       .replace(/[^\p{L}\p{N}'’-]+/gu, '')
     if (!cleaned) return
 
-    // Pronounce immediately on click
-    speakFrench(cleaned, { rate: 0.62 }).catch(() => {})
+    if (speak) speakFrench(cleaned, { rate: 0.62 }).catch(() => {})
 
     setLookupWord(cleaned)
     setLookupBusy(true)
@@ -506,6 +525,24 @@ export default function App() {
     } finally {
       setLookupBusy(false)
     }
+  }
+
+  /** Passage taps: only when "Clic mot" mode is on */
+  const onPassageWordClick = (word) => {
+    if (!clickLearn) return
+    lookup(word, { speak: true })
+  }
+
+  const toggleClickLearn = () => {
+    setClickLearn((value) => {
+      const next = !value
+      if (!next) {
+        setLookupResult(null)
+        setLookupWord('')
+        setLookupError('')
+      }
+      return next
+    })
   }
 
   const saveLookupToVocab = () => {
@@ -531,10 +568,19 @@ export default function App() {
           </p>
           <h1 className="mt-1 font-serif text-3xl sm:text-4xl">Coach de lecture française</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Cliquez un mot : il est prononcé et traduit en haut. Suivez aussi le surlignage guidé.
+            Activez « Clic mot » pour entendre et traduire un mot au clic. Sinon, lisez sans
+            interruption.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 self-start">
+          <Button
+            variant={clickLearn ? 'default' : 'outline'}
+            onClick={toggleClickLearn}
+            title="Activer ou désactiver : clic = prononcer + traduire"
+          >
+            <Languages className="h-4 w-4" />
+            Clic mot {clickLearn ? 'ON' : 'OFF'}
+          </Button>
           <Button variant="outline" onClick={() => setShowVocab((v) => !v)}>
             <BookOpen className="h-4 w-4" />
             Vocabulaire ({vocab.length})
@@ -546,62 +592,65 @@ export default function App() {
         </div>
       </header>
 
-      {/* Sticky top translation bar — always visible when a word is selected */}
-      <div className="sticky top-0 z-20 mb-6 rounded-xl border border-ring/25 bg-card/95 p-4 shadow-sm backdrop-blur">
-        {lookupResult || lookupBusy ? (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Mot sélectionné</p>
-              <p className="mt-1 font-serif text-2xl leading-tight">
-                <span className="text-foreground">{lookupResult?.source || lookupWord}</span>
-                <span className="mx-2 text-muted-foreground">→</span>
-                <span className="text-ring">
-                  {lookupBusy
-                    ? '…'
-                    : lookupResult?.translated || 'voir Reverso Context'}
-                </span>
-              </p>
-              {lookupResult?.alternatives?.length ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Aussi : {lookupResult.alternatives.join(' · ')}
+      {clickLearn ? (
+        <div className="sticky top-0 z-20 mb-6 rounded-xl border border-ring/25 bg-card/95 p-4 shadow-sm backdrop-blur">
+          {lookupResult || lookupBusy ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Mot sélectionné
                 </p>
-              ) : null}
+                <p className="mt-1 font-serif text-2xl leading-tight">
+                  <span className="text-foreground">{lookupResult?.source || lookupWord}</span>
+                  <span className="mx-2 text-muted-foreground">→</span>
+                  <span className="text-ring">
+                    {lookupBusy
+                      ? '…'
+                      : lookupResult?.translated || 'voir Reverso Context'}
+                  </span>
+                </p>
+                {lookupResult?.alternatives?.length ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Aussi : {lookupResult.alternatives.join(' · ')}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => listenWord(lookupResult?.source || lookupWord)}
+                >
+                  <Volume2 className="h-3.5 w-3.5" />
+                  Réécouter
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={saveLookupToVocab}
+                  disabled={!lookupResult?.translated}
+                >
+                  Sauver
+                </Button>
+                <a
+                  className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs hover:bg-muted"
+                  href={
+                    lookupResult?.url ||
+                    reversoContextUrl(lookupResult?.source || lookupWord)
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Reverso
+                </a>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => listenWord(lookupResult?.source || lookupWord)}
-              >
-                <Volume2 className="h-3.5 w-3.5" />
-                Réécouter
-              </Button>
-              <Button
-                size="sm"
-                onClick={saveLookupToVocab}
-                disabled={!lookupResult?.translated}
-              >
-                Sauver
-              </Button>
-              <a
-                className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs hover:bg-muted"
-                href={
-                  lookupResult?.url ||
-                  reversoContextUrl(lookupResult?.source || lookupWord)
-                }
-                target="_blank"
-                rel="noreferrer"
-              >
-                Reverso
-              </a>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Cliquez n’importe quel mot du texte pour l’entendre et voir la traduction ici.
-          </p>
-        )}
-      </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Mode actif — cliquez un mot du texte pour l’entendre et voir la traduction ici.
+            </p>
+          )}
+        </div>
+      ) : null}
 
       <div className="mb-4 flex flex-wrap gap-2">
         <Button
@@ -818,10 +867,16 @@ export default function App() {
                         ? 'guide-word-active'
                         : passed
                           ? 'guide-word-passed'
-                          : 'hover:bg-secondary')
+                          : clickLearn
+                            ? 'hover:bg-secondary cursor-pointer'
+                            : 'cursor-text')
                     }
-                    onClick={() => lookup(token.lookup)}
-                    title="Prononcer + traduire"
+                    onClick={() => onPassageWordClick(token.lookup)}
+                    title={
+                      clickLearn
+                        ? 'Prononcer + traduire'
+                        : 'Activez « Clic mot » pour entendre et traduire'
+                    }
                   >
                     {token.value}
                   </button>
