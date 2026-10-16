@@ -15,6 +15,9 @@ export default defineConfig({
       '/asr': {
         target: whisperUrl,
         changeOrigin: true,
+        // Whisper can take a while on first request while the model warms up
+        timeout: 180_000,
+        proxyTimeout: 180_000,
       },
       '/pronunciation': {
         target: pronounceUrl,

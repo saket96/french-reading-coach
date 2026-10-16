@@ -49,52 +49,75 @@ export function extractWordTimings(payload) {
   return words
 }
 
-export async function transcribeFrenchAudio(blob) {
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+async function postAsr(blob) {
   const form = new FormData()
   form.append('audio_file', blob, 'reading.webm')
+  return fetch('/asr?task=transcribe&language=fr&output=json&word_timestamps=true', {
+    method: 'POST',
+    body: form,
+  })
+}
 
-  let response
-  try {
-    response = await fetch(
-      '/asr?task=transcribe&language=fr&output=json&word_timestamps=true',
-      {
-        method: 'POST',
-        body: form,
-      },
-    )
-  } catch {
-    throw new WhisperUnavailableError(
-      'Whisper n’est pas joignable. Lancez `docker compose up -d` à la racine du projet, attendez que le modèle base soit chargé, puis réessayez.',
-    )
-  }
-
-  if (!response.ok) {
-    throw new WhisperUnavailableError(
-      `Whisper a renvoyé une erreur (${response.status}). Vérifiez que le conteneur tourne sur le port 9000.`,
-    )
-  }
-
+function parseAsrResponse(response, bodyText) {
   const contentType = response.headers.get('content-type') ?? ''
-  if (contentType.includes('application/json') || contentType.includes('text/plain')) {
-    const payload = contentType.includes('application/json')
-      ? await response.json()
-      : JSON.parse(await response.text())
-    return {
-      text: extractTranscript(payload),
-      words: extractWordTimings(payload),
-      raw: payload,
+  if (contentType.includes('application/json')) {
+    return JSON.parse(bodyText)
+  }
+  try {
+    return JSON.parse(bodyText)
+  } catch {
+    return bodyText.trim()
+  }
+}
+
+export async function transcribeFrenchAudio(blob) {
+  const maxAttempts = 4
+  let lastStatus = 0
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let response
+    try {
+      response = await postAsr(blob)
+    } catch {
+      if (attempt < maxAttempts) {
+        await sleep(1200 * attempt)
+        continue
+      }
+      throw new WhisperUnavailableError(
+        'Whisper n’est pas joignable. Dans le dossier du projet : `docker compose up -d` puis `docker compose logs -f whisper` — attendez que le modèle soit chargé.',
+      )
     }
+
+    lastStatus = response.status
+    if (response.ok) {
+      const bodyText = await response.text()
+      const payload = parseAsrResponse(response, bodyText)
+      if (typeof payload === 'string') {
+        return { text: payload, words: [], raw: null }
+      }
+      return {
+        text: extractTranscript(payload),
+        words: extractWordTimings(payload),
+        raw: payload,
+      }
+    }
+
+    // 502/503/504 often mean the model is still loading after compose up
+    if ([502, 503, 504].includes(response.status) && attempt < maxAttempts) {
+      await sleep(1500 * attempt)
+      continue
+    }
+
+    throw new WhisperUnavailableError(
+      `Whisper a renvoyé ${response.status}. Relancez : \`docker compose restart whisper\` puis attendez ~30–60 s (chargement du modèle) avant de réessayer.`,
+    )
   }
 
-  const text = (await response.text()).trim()
-  try {
-    const payload = JSON.parse(text)
-    return {
-      text: extractTranscript(payload),
-      words: extractWordTimings(payload),
-      raw: payload,
-    }
-  } catch {
-    return { text, words: [], raw: null }
-  }
+  throw new WhisperUnavailableError(
+    `Whisper a renvoyé ${lastStatus || 'une erreur'}. Vérifiez \`docker compose ps\` et les logs whisper.`,
+  )
 }

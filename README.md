@@ -30,7 +30,16 @@ Stop: `docker compose down`
 - **Mon texte** — paste your own French
 - **Vocabulary** — click a word for an FR→EN gloss; **Exemples Reverso** opens Reverso Context in your browser (Reverso’s API is blocked from Docker by Cloudflare)
 - **Revue** — words, liaisons, terminaisons, phonemes after each step
-- Docker services: Whisper `small` `:9000`, OpenPronounce `:8000`, web `:4378`
+- Docker services: Whisper `base` `:9000`, OpenPronounce `:8000`, web `:4378`
+
+### If Whisper returns 502
+```bash
+docker compose ps
+docker compose logs --tail=80 whisper
+docker compose restart whisper
+# wait ~30–60s for the model, then try again
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9000/docs
+```
 - French-aware scoring: accents / genre / petites variantes ASR = « presque », pas une fausse erreur
 
 ## Requirements

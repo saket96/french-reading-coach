@@ -4,8 +4,9 @@ services:
     ports:
       - "9000:9000"
     environment:
-      # small = much better French ASR than base (first download is larger)
-      ASR_MODEL: small
+      # base is stable on Mac CPU; French soft-matching covers many near-misses.
+      # For higher accuracy later you can try: ASR_MODEL: small
+      ASR_MODEL: base
       ASR_ENGINE: faster_whisper
     volumes:
       - whisper-model-cache:/root/.cache
