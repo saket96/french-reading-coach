@@ -28,7 +28,7 @@ Stop: `docker compose down`
 - **Écouter (guidé)** — TTS + word highlight as it speaks
 - **Enregistrer (guidé)** — highlight advances while you read aloud
 - **Mon texte** — paste your own French
-- **Reverso** — click a word to translate / save vocabulary (needs internet)
+- **Vocabulary** — click a word for an FR→EN gloss; **Exemples Reverso** opens Reverso Context in your browser (Reverso’s API is blocked from Docker by Cloudflare)
 - **Revue** — words, liaisons, terminaisons, phonemes after each step
 - Docker services: Whisper `:9000`, OpenPronounce `:8000`, web `:4378`
 

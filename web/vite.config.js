@@ -24,15 +24,23 @@ export default defineConfig({
         target: pronounceUrl,
         changeOrigin: true,
       },
-      // Reverso translation API (avoids browser CORS)
+      // Reverso (often Cloudflare 403 from Docker — client falls back automatically)
       '/reverso-translate': {
         target: 'https://api.reverso.net',
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/reverso-translate/, '/translate/v1/translation'),
-        headers: {
-          Origin: 'https://www.reverso.net',
-          Referer: 'https://www.reverso.net/',
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('Origin', 'https://www.reverso.net')
+            proxyReq.setHeader('Referer', 'https://www.reverso.net/text-translation')
+            proxyReq.setHeader(
+              'User-Agent',
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            )
+            proxyReq.setHeader('X-Reverso-Origin', 'translation.web')
+            proxyReq.setHeader('Accept', 'application/json, text/plain, */*')
+          })
         },
       },
     },

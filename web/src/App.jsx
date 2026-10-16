@@ -489,6 +489,7 @@ export default function App() {
     try {
       const result = await translateFrenchToEnglish(cleaned)
       setLookupResult(result)
+      if (result.note) setLookupError(result.note)
     } catch (err) {
       setLookupError(err.message || 'Traduction impossible')
       setLookupResult({ source: cleaned, translated: '', url: reversoContextUrl(cleaned) })
@@ -502,7 +503,7 @@ export default function App() {
     setVocab((prev) =>
       upsertVocabularyEntry(prev, {
         word: lookupResult.source,
-        translation: lookupResult.translated || '(voir Reverso)',
+        translation: lookupResult.translated || '(voir Reverso Context)',
       }),
     )
   }
@@ -605,7 +606,7 @@ export default function App() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-serif text-xl">Vocabulaire</h2>
             <p className="text-xs text-muted-foreground">
-              Cliquez un mot pour traduire avec Reverso (meilleur contexte FR→EN).
+              Traduction FR→EN + exemples dans Reverso Context (nouvel onglet).
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -623,7 +624,9 @@ export default function App() {
               {lookupBusy ? '…' : 'Traduire'}
             </Button>
           </div>
-          {lookupError ? <p className="text-sm text-wrong">{lookupError}</p> : null}
+          {lookupError ? (
+            <p className="text-sm text-muted-foreground">{lookupError}</p>
+          ) : null}
           {lookupResult ? (
             <div className="rounded-md bg-muted/50 px-3 py-2 text-sm flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -641,22 +644,27 @@ export default function App() {
                     Aussi : {lookupResult.alternatives.join(' · ')}
                   </p>
                 ) : null}
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {lookupResult.provider === 'reverso'
+                    ? 'Source : Reverso'
+                    : 'Glose rapide — ouvrez Reverso pour le contexte et les exemples.'}
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" onClick={() => listenWord(lookupResult.source)}>
                   <Volume2 className="h-3.5 w-3.5" />
                   FR
                 </Button>
-                <Button size="sm" onClick={saveLookupToVocab}>
+                <Button size="sm" onClick={saveLookupToVocab} disabled={!lookupResult.translated}>
                   Sauver
                 </Button>
                 <a
-                  className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs hover:bg-muted"
+                  className="inline-flex h-8 items-center rounded-md border border-border bg-foreground px-3 text-xs text-background hover:opacity-90"
                   href={lookupResult.url || reversoContextUrl(lookupResult.source)}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Ouvrir Reverso
+                  Exemples Reverso
                 </a>
               </div>
             </div>
