@@ -1,7 +1,9 @@
 # Installation guide
 
+**English** · **[Français](INSTALL.fr.md)**
+
 Step-by-step setup for **macOS**, **Windows**, and **Linux**.  
-For a shorter overview, see the [root README](../README.md).
+For a shorter overview, see the [root README](../README.md) · [README français](../README.fr.md).
 
 ---
 
@@ -343,3 +345,10 @@ docker compose --profile small down -v
 
 `-v` removes Docker volumes (downloaded Whisper / OpenPronounce model caches).  
 Then delete the project folder if you no longer need the source.
+
+---
+
+## Need help?
+
+If you get stuck during install or while using the coach, contact **Saket Suman**:  
+**[https://saketsuman.com/contact/](https://saketsuman.com/contact/)**

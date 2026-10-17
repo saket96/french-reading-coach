@@ -18,4 +18,6 @@ Do not expose ports `4378`, `9000`, `8000`, or `9001` to the public internet wit
 
 ## Reporting vulnerabilities
 
-Please open a private security advisory on GitHub if available, or contact the repository owner. Do not file public issues that include exploit details until a fix can be prepared.
+Please open a private security advisory on GitHub if available, or contact the author at  
+**[https://saketsuman.com/contact/](https://saketsuman.com/contact/)**.  
+Do not file public issues that include exploit details until a fix can be prepared.

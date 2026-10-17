@@ -1,5 +1,7 @@
 # Coach de lecture française
 
+**English** · **[Français](README.fr.md)**
+
 **Open-source, local-first French reading coach** for B2+ learners.
 
 Record yourself reading French (or **shadow** one sentence), get French-aware word feedback, optional phoneme tips, a Whisper ready light with Base/Small models, click-to-translate, and a Leitner **vocab review deck**. Speech recognition and pronunciation scoring run in **Docker on your computer** — no account required.
@@ -7,9 +9,10 @@ Record yourself reading French (or **shadow** one sentence), get French-aware wo
 | | |
 |---|---|
 | **Author** | [Saket Suman](https://saketsuman.com) |
+| **Need help?** | [Contact](https://saketsuman.com/contact/) |
 | **App (local)** | http://127.0.0.1:4378 |
 | **License** | [MIT](LICENSE) |
-| **Install (Mac / Windows / Linux)** | [docs/INSTALL.md](docs/INSTALL.md) |
+| **Install (Mac / Windows / Linux)** | [docs/INSTALL.md](docs/INSTALL.md) · [Français](docs/INSTALL.fr.md) |
 | **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | **Security / privacy** | [SECURITY.md](SECURITY.md) |
 
@@ -229,6 +232,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Author
 
 Created by **[Saket Suman](https://saketsuman.com)**.
+
+## Need help?
+
+Questions about install, listen/record, or using the coach — reach out here:  
+**[https://saketsuman.com/contact/](https://saketsuman.com/contact/)**
 
 ## License
 

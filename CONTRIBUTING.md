@@ -42,3 +42,6 @@ Include:
 - Output of `docker compose ps`
 - Relevant logs (`docker compose logs --tail=100 whisper` etc.)
 - What you expected vs what happened
+
+For general help (install, how to use Écouter / Enregistrer, etc.), you can also contact the author:  
+**[https://saketsuman.com/contact/](https://saketsuman.com/contact/)**

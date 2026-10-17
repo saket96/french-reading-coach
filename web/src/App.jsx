@@ -1809,6 +1809,30 @@ export default function App() {
           ) : null}
         </section>
       ) : null}
+
+      <footer className="mt-10 border-t border-border pt-4 text-sm text-muted-foreground">
+        <p>
+          Créé par{' '}
+          <a
+            className="text-ring underline-offset-2 hover:underline"
+            href="https://saketsuman.com"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Saket Suman
+          </a>
+          {' · '}
+          Besoin d’aide ?{' '}
+          <a
+            className="text-ring underline-offset-2 hover:underline"
+            href="https://saketsuman.com/contact/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Contact
+          </a>
+        </p>
+      </footer>
     </div>
   )
 }
