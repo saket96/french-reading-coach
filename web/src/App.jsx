@@ -410,13 +410,18 @@ export default function App() {
     }
   }, [whisperModel])
 
-  const stopGuide = () => {
+  /** Clear guide UI/session without cancelling TTS (speakFrench handles replace). */
+  const clearGuideSession = () => {
     if (listenSessionRef.current) listenSessionRef.current.stopped = true
     listenSessionRef.current = null
     guideStopRef.current?.()
     guideStopRef.current = null
     setGuideWordIndex(-1)
     setGuideMode('')
+  }
+
+  const stopGuide = () => {
+    clearGuideSession()
     stopSpeaking()
   }
 
@@ -467,6 +472,7 @@ export default function App() {
       setGuideWordIndex(session.wordOffset + Math.max(0, session.lastWordIndex || 0))
       const result = await speakFrench(slice, {
         rate: session.rate,
+        voiceURI: session.voiceURI || voiceURI,
         onBoundary: (charIndex) => {
           if (listenSessionRef.current !== session) return
           gotBoundary = true
@@ -742,12 +748,15 @@ export default function App() {
   const listenFullPassage = async () => {
     const text = fullText
     if (!text) return
-    stopGuide()
+    // Soft clear only — do not cancel() here; a cancel+await before speak
+    // leaves Chrome/Safari silent after the voice picker.
+    clearGuideSession()
     const session = {
       mode: 'listen-all',
       text,
       tokens: fullDisplayTokens,
       rate: listenRateForPace(),
+      voiceURI,
       wordOffset: 0,
       wordCount: fullWordCount,
       lastCharIndex: 0,
@@ -760,13 +769,14 @@ export default function App() {
 
   const listenChunk = async () => {
     if (!currentChunk) return
-    stopGuide()
+    clearGuideSession()
     setShadowHeard(true)
     const session = {
       mode: 'listen',
       text: currentChunk,
       tokens: displayTokens,
       rate: listenRateForPace(),
+      voiceURI,
       wordOffset: chunkWordOffset,
       wordCount,
       lastCharIndex: 0,
@@ -779,12 +789,12 @@ export default function App() {
 
   const listenWord = (word) => {
     if (!word) return
-    speakFrench(word, { rate: 0.62 }).catch(() => {})
+    speakFrench(word, { rate: 0.62, voiceURI }).catch(() => {})
   }
 
   const listenHypWord = (hyp) => {
     if (!hyp) return
-    speakFrench(`Vous avez dit : ${hyp}`, { rate: 0.68 }).catch(() => {})
+    speakFrench(`Vous avez dit : ${hyp}`, { rate: 0.68, voiceURI }).catch(() => {})
   }
 
   const listenSpokenClip = async (hyp, hypIndex) => {
@@ -831,7 +841,10 @@ export default function App() {
     }
 
     if (speak) {
-      await speakFrench(cleaned, { rate: kind === 'sentence' ? 0.7 : 0.62 }).catch(() => {})
+      await speakFrench(cleaned, {
+        rate: kind === 'sentence' ? 0.7 : 0.62,
+        voiceURI,
+      }).catch(() => {})
     }
 
     setLookupWord(cleaned)
@@ -1023,6 +1036,7 @@ export default function App() {
                   onClick={() =>
                     speakFrench(lookupResult?.source || lookupWord, {
                       rate: lookupResult?.kind === 'sentence' ? 0.7 : 0.62,
+                      voiceURI,
                     }).catch(() => {})
                   }
                 >
@@ -1515,6 +1529,7 @@ export default function App() {
               setError('')
               speakFrench('Bonjour, je suis votre coach de lecture française.', {
                 rate: paceConfig.ttsRate,
+                voiceURI,
               }).catch((err) => {
                 setError(
                   err?.message ||

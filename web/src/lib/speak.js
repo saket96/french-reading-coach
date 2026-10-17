@@ -20,12 +20,18 @@ const ROBOTIC_FR_NAMES = /compact|espeak|festival|robot|novelty/i
 function syncVoiceCache() {
   if (typeof window === 'undefined' || !window.speechSynthesis) return cachedVoices
   try {
+    // Always prefer a fresh getVoices() list — cached SpeechSynthesisVoice
+    // objects go stale and Chrome/Safari then speak silently.
     const list = window.speechSynthesis.getVoices()
     if (list?.length) cachedVoices = [...list]
   } catch {
     // ignore
   }
   return cachedVoices
+}
+
+function freshVoices() {
+  return syncVoiceCache()
 }
 
 /** Call once on app boot so voices are ready before the first Écouter click. */
@@ -108,9 +114,9 @@ export async function listFrenchVoices() {
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'fr'))
 }
 
-/** Sync pick — never await before speechSynthesis.speak (Chrome user-gesture). */
+/** Sync pick from a fresh getVoices() snapshot — never await before speak(). */
 export function pickFrenchVoiceSync(voiceURI = preferredFrenchVoiceURI) {
-  const voices = syncVoiceCache()
+  const voices = freshVoices()
   const fr = voices.filter((v) => v.lang?.toLowerCase().startsWith('fr'))
   if (!fr.length) return null
 
@@ -178,10 +184,17 @@ function speakOnce(text, { rate, onBoundary, voice }) {
       return
     }
 
+    // Re-resolve by URI so we never assign a stale Voice object.
+    const liveVoice = voice
+      ? pickFrenchVoiceSync(voice.voiceURI || voice.name) || voice
+      : pickFrenchVoiceSync()
+
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = voice?.lang?.toLowerCase().startsWith('fr') ? voice.lang : 'fr-FR'
+    utterance.lang = liveVoice?.lang?.toLowerCase().startsWith('fr')
+      ? liveVoice.lang
+      : 'fr-FR'
     utterance.rate = rate
-    if (voice) utterance.voice = voice
+    if (liveVoice) utterance.voice = liveVoice
 
     if (typeof onBoundary === 'function') {
       utterance.onboundary = (event) => {
@@ -209,22 +222,32 @@ function speakOnce(text, { rate, onBoundary, voice }) {
       reject(new Error(reason || 'Lecture vocale interrompue'))
     }
 
-    window.speechSynthesis.speak(utterance)
+    const synth = window.speechSynthesis
+    try {
+      if (synth.paused) synth.resume()
+    } catch {
+      // ignore
+    }
+    synth.speak(utterance)
 
-    // Chrome sometimes stays paused after cancel
+    // Chrome sometimes stays paused after cancel and never starts audio
     window.setTimeout(() => {
       try {
-        if (window.speechSynthesis.paused) window.speechSynthesis.resume()
+        if (generation === speakGeneration && (synth.paused || !synth.speaking)) {
+          synth.resume()
+        }
       } catch {
         // ignore
       }
-    }, 20)
+    }, 30)
   })
 }
 
 /**
  * Speak French with a French accent voice when available.
- * Speaks in short chunks (Chrome-safe) and keeps speak() close to the user click.
+ * Speaks in short chunks (Chrome-safe). Cancels only when needed, and never
+ * awaits before the first speak() when the synth is already idle — that
+ * delay was silencing Chrome after the voice picker.
  */
 export async function speakFrench(
   text,
@@ -234,32 +257,41 @@ export async function speakFrench(
     throw new Error('Synthèse vocale indisponible dans ce navigateur')
   }
 
+  const synth = window.speechSynthesis
   const generation = ++speakGeneration
-  window.speechSynthesis.cancel()
-  // Short settle only — long awaits after click make Chrome mute speech
-  await new Promise((r) => window.setTimeout(r, 20))
-  if (generation !== speakGeneration) return { status: 'interrupted' }
+  const voice = pickFrenchVoiceSync(voiceURI)
+
+  const parts = splitTextForSpeech(text)
+  if (!parts.length) return { status: 'ended' }
+
+  const needsCancel = synth.speaking || synth.pending
+  if (needsCancel) {
+    try {
+      synth.cancel()
+    } catch {
+      // ignore
+    }
+    // Chrome drops speak() in the same turn as cancel(); brief yield only then.
+    await new Promise((r) => window.setTimeout(r, 50))
+    if (generation !== speakGeneration) return { status: 'interrupted' }
+  }
 
   try {
-    window.speechSynthesis.resume()
+    synth.resume()
   } catch {
     // ignore
   }
 
-  // Sync voice pick from cache (warmed on app load)
-  syncVoiceCache()
-  const voice = pickFrenchVoiceSync(voiceURI)
-  if (generation !== speakGeneration) return { status: 'interrupted' }
-
-  const parts = splitTextForSpeech(text)
   let offset = 0
 
   for (const part of parts) {
     if (generation !== speakGeneration) return { status: 'interrupted' }
     const chunkOffset = offset
+    // Fresh voice each chunk (Voice objects can go stale mid-session)
+    const chunkVoice = pickFrenchVoiceSync(voiceURI) || voice
     const result = await speakOnce(part, {
       rate,
-      voice,
+      voice: chunkVoice,
       onBoundary: (charIndex, charLength) => {
         onBoundary?.(chunkOffset + charIndex, charLength)
       },
