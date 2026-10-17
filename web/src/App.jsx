@@ -21,7 +21,7 @@ import { WorksPanel } from './components/WorksPanel.jsx'
 import { FIXTURE_CHUNK_INDEX, FIXTURE_PASSAGE_ID, FIXTURE_TRANSCRIPT } from './fixtures.js'
 import { alignWords, practiceErrors } from './lib/align.js'
 import { findTimingForHyp, playAudioRange } from './lib/audioClip.js'
-import { passageChunks } from './lib/chunks.js'
+import { passageChunks, splitSentences } from './lib/chunks.js'
 import { CUSTOM_PASSAGE_ID, customPassage, loadCustomText, saveCustomText } from './lib/customText.js'
 import { analyzeLiaisons, analyzeTerminations } from './lib/liaison.js'
 import {
@@ -238,6 +238,10 @@ export default function App() {
   const [guideWordIndex, setGuideWordIndex] = useState(-1)
   const [guideMode, setGuideMode] = useState('') // 'listen' | 'listen-all' | 'read' | ''
   const [listenPaused, setListenPaused] = useState(false)
+  /** Guided listen plays one sentence at a time; Next advances within the step. */
+  const [listenLineIndex, setListenLineIndex] = useState(0)
+  const [listenLineCount, setListenLineCount] = useState(0)
+  const [listenAwaitingNext, setListenAwaitingNext] = useState(false)
   const [clickLearn, setClickLearn] = useState(() => loadClickLearn())
   const [clickTarget, setClickTarget] = useState(() => loadClickTarget()) // word | phrase
   const [selectedSentence, setSelectedSentence] = useState(-1)
@@ -273,7 +277,6 @@ export default function App() {
   const safeIndex = Math.min(chunkIndex, Math.max(chunks.length - 1, 0))
   const currentChunk = chunks[safeIndex] ?? ''
   const isLastChunk = chunks.length === 0 || safeIndex >= chunks.length - 1
-  const displayTokens = useMemo(() => splitDisplayTokens(currentChunk || ''), [currentChunk])
   const wordCount = useMemo(() => countGuidedWords(currentChunk || ''), [currentChunk])
   const fullText = activePassage?.text?.trim() || ''
   const fullDisplayTokens = useMemo(
@@ -492,6 +495,9 @@ export default function App() {
     setGuideWordIndex(-1)
     setGuideMode('')
     setListenPaused(false)
+    setListenAwaitingNext(false)
+    setListenLineIndex(0)
+    setListenLineCount(0)
   }
 
   const stopGuide = () => {
@@ -499,14 +505,48 @@ export default function App() {
     stopSpeaking()
   }
 
+  /** Bind session text/tokens/offset to the current guided sentence. */
+  const prepareListenLine = (session) => {
+    const lines = session.lines || []
+    const lineIndex = Math.max(0, Math.min(session.lineIndex || 0, Math.max(lines.length - 1, 0)))
+    session.lineIndex = lineIndex
+    const line = lines[lineIndex] || ''
+    const prefix = lines.slice(0, lineIndex).join(' ')
+    session.text = line
+    session.tokens = splitDisplayTokens(line)
+    session.wordOffset =
+      (session.chunkBaseWordOffset || 0) + countGuidedWords(prefix)
+    session.wordCount = countGuidedWords(line)
+    session.lastCharIndex = 0
+    session.lastWordIndex = 0
+    setListenLineIndex(lineIndex)
+    setListenLineCount(lines.length)
+  }
+
   const finishListenSession = (session) => {
     if (listenSessionRef.current !== session) return
-    listenSessionRef.current = null
     guideStopRef.current?.()
     guideStopRef.current = null
+    setListenPaused(false)
+
+    // Guided mode: after one sentence, wait for Suivant instead of closing.
+    if (
+      session.mode === 'listen' &&
+      Array.isArray(session.lines) &&
+      session.lineIndex < session.lines.length - 1 &&
+      !session.stopped
+    ) {
+      session.awaitingNext = true
+      setListenAwaitingNext(true)
+      return
+    }
+
+    listenSessionRef.current = null
     setGuideWordIndex(-1)
     setGuideMode('')
-    setListenPaused(false)
+    setListenAwaitingNext(false)
+    setListenLineIndex(0)
+    setListenLineCount(0)
   }
 
   const pauseListen = () => {
@@ -903,24 +943,49 @@ export default function App() {
     await playListenSession(session, 0)
   }
 
+  /** Écouter (guidé): one sentence (line) at a time within the current step. */
   const listenChunk = async () => {
     if (!currentChunk) return
     clearGuideSession()
     setShadowHeard(true)
+    const lines = splitSentences(currentChunk)
+    if (!lines.length) return
     const session = {
       mode: 'listen',
-      text: currentChunk,
-      tokens: displayTokens,
+      lines,
+      lineIndex: 0,
+      chunkBaseWordOffset: chunkWordOffset,
       rate: listenRateForPace(),
       voiceURI,
-      wordOffset: chunkWordOffset,
-      wordCount,
-      lastCharIndex: 0,
-      lastWordIndex: 0,
       holdForLookup: false,
       paused: false,
+      awaitingNext: false,
       stopped: false,
+      lastCharIndex: 0,
+      lastWordIndex: 0,
     }
+    prepareListenLine(session)
+    setListenAwaitingNext(false)
+    await playListenSession(session, 0)
+  }
+
+  /** Play the next sentence in the guided step (skips the rest of the current line). */
+  const listenNextLine = async () => {
+    const session = listenSessionRef.current
+    if (!session || session.stopped || session.mode !== 'listen') return
+    if (!session.lines || session.lineIndex >= session.lines.length - 1) return
+
+    session.holdForLookup = false
+    session.paused = false
+    session.awaitingNext = false
+    setListenPaused(false)
+    setListenAwaitingNext(false)
+    guideStopRef.current?.()
+    guideStopRef.current = null
+    stopSpeaking()
+
+    session.lineIndex += 1
+    prepareListenLine(session)
     await playListenSession(session, 0)
   }
 
@@ -969,6 +1034,7 @@ export default function App() {
     const shouldResume =
       Boolean(session) &&
       !session.stopped &&
+      !session.awaitingNext &&
       (session.mode === 'listen' || session.mode === 'listen-all')
 
     if (shouldResume) {
@@ -1602,8 +1668,10 @@ export default function App() {
         ) : null}
         {guideMode === 'listen' ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Écoute guidée ({paceConfig.label}). Un clic explique, puis la lecture reprend où elle
-            s’était arrêtée.
+            Écoute guidée ({paceConfig.label}) — phrase {listenLineIndex + 1}
+            {listenLineCount > 0 ? ` / ${listenLineCount}` : ''} de l’étape. Suivant = phrase
+            suivante. Un clic explique, puis la lecture reprend.
+            {listenAwaitingNext ? ' Prête pour Suivant.' : ''}
           </p>
         ) : null}
         {guideMode === 'listen-all' ? (
@@ -1792,7 +1860,7 @@ export default function App() {
             variant="outline"
             onClick={listenChunk}
             disabled={!currentChunk || phase === 'recording'}
-            title="Lire seulement l’étape actuelle avec surlignage"
+            title="Lire l’étape actuelle une phrase à la fois"
           >
             <Volume2 className="h-4 w-4" />
             Écouter (guidé)
@@ -1802,11 +1870,22 @@ export default function App() {
               <Button
                 variant="ghost"
                 onClick={listenPaused ? resumeListen : pauseListen}
+                disabled={listenAwaitingNext}
                 title={listenPaused ? 'Reprendre la lecture' : 'Mettre en pause'}
               >
                 {listenPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
                 {listenPaused ? 'Reprendre' : 'Pause'}
               </Button>
+              {guideMode === 'listen' && listenLineCount > 1 && listenLineIndex < listenLineCount - 1 ? (
+                <Button
+                  variant="outline"
+                  onClick={listenNextLine}
+                  title="Lire la phrase suivante de l’étape"
+                >
+                  Suivant
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              ) : null}
               <Button variant="ghost" onClick={stopGuide}>
                 Stop écoute
               </Button>
