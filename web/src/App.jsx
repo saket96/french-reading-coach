@@ -877,92 +877,16 @@ export default function App() {
   })
 
   return (
-    <div className="mx-auto min-h-screen max-w-5xl px-4 py-8 sm:px-6">
-      <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold tracking-[0.2em] text-ring uppercase">
-            Lecture guidée · vocabulaire · prononciation
-          </p>
-          <h1 className="mt-1 font-serif text-3xl sm:text-4xl">Coach de lecture française</h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Enregistrez à votre rythme, ou activez l’ombre (une phrase). Voyant Whisper + modèle
-            Base/Small en haut.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 self-start">
-          <Button
-            variant={clickLearn ? 'default' : 'outline'}
-            onClick={toggleClickLearn}
-            title="Activer : clic ou sélection pour entendre + traduire"
-          >
-            <Languages className="h-4 w-4" />
-            Clic {clickLearn ? 'ON' : 'OFF'}
-          </Button>
-          {clickLearn ? (
-            <>
-              <Button
-                size="sm"
-                variant={clickTarget === 'word' ? 'default' : 'outline'}
-                onClick={() => {
-                  setClickTarget('word')
-                  setSelectedSentence(-1)
-                }}
-                title="Clic = un mot"
-              >
-                Mot
-              </Button>
-              <Button
-                size="sm"
-                variant={clickTarget === 'phrase' ? 'default' : 'outline'}
-                onClick={() => setClickTarget('phrase')}
-                title="Clic = toute la phrase (meilleure traduction)"
-              >
-                Phrase
-              </Button>
-            </>
-          ) : null}
-          <Button
-            variant={shadowMode ? 'default' : 'outline'}
-            onClick={toggleShadowMode}
-            title="Une phrase : écouter le modèle, puis répéter"
-          >
-            Ombre {shadowMode ? 'ON' : 'OFF'}
-          </Button>
-          <Button
-            variant={showWorks ? 'default' : 'outline'}
-            onClick={openWorksPanel}
-            title="Base locale : sauver / renommer / rouvrir vos textes"
-          >
-            <Database className="h-4 w-4" />
-            Mes travaux
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setShowDeck(true)
-              setShowVocab(false)
-              setShowWorks(false)
-            }}
-          >
-            <Layers className="h-4 w-4" />
-            Révision
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setShowVocab((v) => !v)
-              setShowDeck(false)
-              setShowWorks(false)
-            }}
-          >
-            <BookOpen className="h-4 w-4" />
-            Vocabulaire ({vocab.length})
-          </Button>
-          <Button variant="outline" onClick={runFixture}>
-            <Sparkles className="h-4 w-4" />
-            Démo
-          </Button>
-        </div>
+    <div className="app-shell mx-auto min-h-screen max-w-5xl px-4 py-8 sm:px-6">
+      <header className="mb-6">
+        <p className="text-xs font-semibold tracking-[0.2em] text-ring uppercase">
+          Lecture guidée · vocabulaire · prononciation
+        </p>
+        <h1 className="mt-1 font-serif text-3xl sm:text-4xl">Coach de lecture française</h1>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+          Contrôles flottants à droite (ou en bas sur mobile) : Clic, Ombre, travaux, écoute et
+          enregistrement.
+        </p>
       </header>
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 text-sm">
@@ -1428,90 +1352,169 @@ export default function App() {
         ) : null}
       </section>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <span className="text-sm text-muted-foreground">Vitesse d’écoute :</span>
-        {Object.entries(PACE_PRESETS)
-          .filter(([key]) => key !== 'libre')
-          .map(([key, preset]) => (
-            <Button
-              key={key}
-              size="sm"
-              variant={pace === key ? 'default' : 'outline'}
-              onClick={() => setPace(key)}
-              disabled={phase === 'recording' || phase === 'transcribing'}
-              title={`Modèle ~${preset.wpm} mots/min`}
-            >
-              {preset.label}
-            </Button>
-          ))}
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        L’enregistrement est libre (votre vitesse). Ces réglages concernent « Écouter tout » et
-        « Écouter (guidé) ».
-      </p>
-
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        {phase === 'recording' ? (
-          <Button variant="destructive" size="lg" onClick={stopRecording}>
-            <CircleStop className="h-4 w-4" />
-            Stop ({seconds}s)
-          </Button>
-        ) : (
+      <aside className="practice-dock" aria-label="Contrôles flottants">
+        <div className="practice-dock__actions">
+          <p className="practice-dock__label">Outils</p>
           <Button
-            size="lg"
-            onClick={startRecording}
-            disabled={phase === 'transcribing' || !currentChunk}
+            variant={clickLearn ? 'default' : 'outline'}
+            onClick={toggleClickLearn}
+            title="Activer : clic ou sélection pour entendre + traduire"
           >
-            <Mic className="h-4 w-4" />
-            Enregistrer
+            <Languages className="h-4 w-4" />
+            Clic {clickLearn ? 'ON' : 'OFF'}
           </Button>
-        )}
-        <Button variant="secondary" onClick={resetAttempt} disabled={phase === 'recording'}>
-          <RotateCcw className="h-4 w-4" />
-          Réessayer
-        </Button>
-        <Button
-          variant="outline"
-          onClick={listenFullPassage}
-          disabled={!activePassage?.text?.trim() || phase === 'recording'}
-          title="Lire tout le passage d’un coup"
-        >
-          <Volume2 className="h-4 w-4" />
-          Écouter tout
-        </Button>
-        <Button
-          variant="outline"
-          onClick={listenChunk}
-          disabled={!currentChunk || phase === 'recording'}
-          title="Lire seulement l’étape actuelle avec surlignage"
-        >
-          <Volume2 className="h-4 w-4" />
-          Écouter (guidé)
-        </Button>
-        {guideMode === 'listen' || guideMode === 'listen-all' ? (
-          <Button variant="ghost" onClick={stopGuide}>
-            Stop écoute
+          {clickLearn ? (
+            <div className="practice-dock__pace">
+              <Button
+                size="sm"
+                variant={clickTarget === 'word' ? 'default' : 'outline'}
+                onClick={() => {
+                  setClickTarget('word')
+                  setSelectedSentence(-1)
+                }}
+                title="Clic = un mot"
+              >
+                Mot
+              </Button>
+              <Button
+                size="sm"
+                variant={clickTarget === 'phrase' ? 'default' : 'outline'}
+                onClick={() => setClickTarget('phrase')}
+                title="Clic = toute la phrase (meilleure traduction)"
+              >
+                Phrase
+              </Button>
+            </div>
+          ) : null}
+          <Button
+            variant={shadowMode ? 'default' : 'outline'}
+            onClick={toggleShadowMode}
+            title="Une phrase : écouter le modèle, puis répéter"
+          >
+            Ombre {shadowMode ? 'ON' : 'OFF'}
           </Button>
-        ) : null}
-        {audioUrl ? (
-          <Button variant="outline" onClick={() => document.getElementById('replay')?.play()}>
+          <Button
+            variant={showWorks ? 'default' : 'outline'}
+            onClick={openWorksPanel}
+            title="Base locale : sauver / renommer / rouvrir vos textes"
+          >
+            <Database className="h-4 w-4" />
+            Mes travaux
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowDeck(true)
+              setShowVocab(false)
+              setShowWorks(false)
+            }}
+          >
+            <Layers className="h-4 w-4" />
+            Révision
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowVocab((v) => !v)
+              setShowDeck(false)
+              setShowWorks(false)
+            }}
+          >
+            <BookOpen className="h-4 w-4" />
+            Vocabulaire ({vocab.length})
+          </Button>
+          <Button variant="outline" onClick={runFixture}>
+            <Sparkles className="h-4 w-4" />
+            Démo
+          </Button>
+        </div>
+
+        <div className="practice-dock__divider" />
+
+        <div>
+          <p className="practice-dock__label">Vitesse d’écoute</p>
+          <div className="practice-dock__pace">
+            {Object.entries(PACE_PRESETS)
+              .filter(([key]) => key !== 'libre')
+              .map(([key, preset]) => (
+                <Button
+                  key={key}
+                  size="sm"
+                  variant={pace === key ? 'default' : 'outline'}
+                  onClick={() => setPace(key)}
+                  disabled={phase === 'recording' || phase === 'transcribing'}
+                  title={`Modèle ~${preset.wpm} mots/min`}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+          </div>
+          <p className="mt-1.5 text-[0.65rem] leading-snug text-muted-foreground">
+            Enregistrement libre. Vitesse = écoute seulement.
+          </p>
+        </div>
+
+        <div className="practice-dock__actions">
+          <p className="practice-dock__label">Pratique</p>
+          {phase === 'recording' ? (
+            <Button variant="destructive" onClick={stopRecording}>
+              <CircleStop className="h-4 w-4" />
+              Stop ({seconds}s)
+            </Button>
+          ) : (
+            <Button onClick={startRecording} disabled={phase === 'transcribing' || !currentChunk}>
+              <Mic className="h-4 w-4" />
+              Enregistrer
+            </Button>
+          )}
+          <Button variant="secondary" onClick={resetAttempt} disabled={phase === 'recording'}>
+            <RotateCcw className="h-4 w-4" />
+            Réessayer
+          </Button>
+          <Button
+            variant="outline"
+            onClick={listenFullPassage}
+            disabled={!activePassage?.text?.trim() || phase === 'recording'}
+            title="Lire tout le passage d’un coup"
+          >
             <Volume2 className="h-4 w-4" />
-            Réécouter ma prise
+            Écouter tout
           </Button>
-        ) : null}
-        {canAdvance ? (
-          <Button size="lg" onClick={goNextChunk}>
-            Continuer
-            <ChevronRight className="h-4 w-4" />
+          <Button
+            variant="outline"
+            onClick={listenChunk}
+            disabled={!currentChunk || phase === 'recording'}
+            title="Lire seulement l’étape actuelle avec surlignage"
+          >
+            <Volume2 className="h-4 w-4" />
+            Écouter (guidé)
           </Button>
-        ) : null}
+          {guideMode === 'listen' || guideMode === 'listen-all' ? (
+            <Button variant="ghost" onClick={stopGuide}>
+              Stop écoute
+            </Button>
+          ) : null}
+          {audioUrl ? (
+            <Button variant="outline" onClick={() => document.getElementById('replay')?.play()}>
+              <Volume2 className="h-4 w-4" />
+              Ma prise
+            </Button>
+          ) : null}
+          {canAdvance ? (
+            <Button onClick={goNextChunk}>
+              Continuer
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          ) : null}
+        </div>
+
         {phase === 'recording' ? (
-          <span className="text-sm text-wrong">Enregistrement…</span>
+          <p className="text-xs text-wrong">Enregistrement…</p>
         ) : null}
         {phase === 'transcribing' ? (
-          <span className="text-sm text-muted-foreground">Analyse…</span>
+          <p className="text-xs text-muted-foreground">Analyse…</p>
         ) : null}
-      </div>
+      </aside>
 
       {audioUrl ? <audio id="replay" className="mt-4 w-full" controls src={audioUrl} /> : null}
 

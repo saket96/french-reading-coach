@@ -50,3 +50,86 @@ body {
   background: #ebe3d4;
   color: #5c675f;
 }
+
+/* Floating practice controls — right side on desktop, bottom dock on small screens */
+.practice-dock {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-card) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgb(31 42 36 / 12%);
+}
+
+@media (min-width: 900px) {
+  .practice-dock {
+    top: 50%;
+    right: 0.85rem;
+    transform: translateY(-50%);
+    width: min(14.5rem, calc(100vw - 1.5rem));
+    max-height: calc(100vh - 1.5rem);
+    overflow-y: auto;
+    border-radius: 1rem;
+  }
+
+  .app-shell {
+    padding-right: 16rem;
+  }
+}
+
+@media (max-width: 899px) {
+  .practice-dock {
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    width: auto;
+    max-height: min(48vh, 22rem);
+    overflow-y: auto;
+    border-radius: 1rem;
+    flex-direction: column;
+  }
+
+  .app-shell {
+    padding-bottom: 14rem;
+  }
+}
+
+.practice-dock__label {
+  margin: 0;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+}
+
+.practice-dock__divider {
+  height: 1px;
+  background: var(--color-border);
+}
+
+.practice-dock__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.practice-dock__actions > button {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.practice-dock__pace {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.practice-dock__pace > button {
+  flex: 1 1 auto;
+  min-width: 0;
+}
