@@ -40,6 +40,11 @@ body {
   overflow-wrap: anywhere;
 }
 
+.passage-text [data-guide-word] {
+  /* Leave room above/below so auto-scroll doesn’t hide the word under the dock */
+  scroll-margin-block: 28vh;
+}
+
 .guide-word-active {
   background: #c8e6d8;
   color: #1f2a24;

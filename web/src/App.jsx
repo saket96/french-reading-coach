@@ -375,6 +375,25 @@ export default function App() {
     }
   }, [])
 
+  /** Keep the highlighted word on screen while long passages are spoken. */
+  useEffect(() => {
+    if (guideWordIndex < 0) return
+    if (guideMode !== 'listen' && guideMode !== 'listen-all' && guideMode !== 'read') return
+    const el = document.querySelector(`[data-guide-word="${guideWordIndex}"]`)
+    if (!el) return
+    // Only scroll when the word is outside (or near) the viewport — avoids jitter.
+    const rect = el.getBoundingClientRect()
+    const margin = Math.round(window.innerHeight * 0.22)
+    const inComfort =
+      rect.top >= margin && rect.bottom <= window.innerHeight - margin
+    if (inComfort) return
+    el.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+      inline: 'nearest',
+    })
+  }, [guideWordIndex, guideMode])
+
   useEffect(() => {
     try {
       localStorage.setItem(MODEL_KEY, whisperModel)
@@ -1361,6 +1380,7 @@ export default function App() {
                   <button
                     key={`full-w-${index}-${token.lookup}`}
                     type="button"
+                    data-guide-word={wordOrdinal}
                     className={
                       'inline rounded-sm px-0.5 transition-colors ' +
                       (active
