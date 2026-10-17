@@ -2,6 +2,8 @@
 
 Vite + React front end for **Coach de lecture française**.
 
+The reading passage uses a **wide layout** (up to ~90rem) beside the floating **Outils** dock. **Écouter** follows the current word with highlight + auto-scroll on long texts; pick a French system voice in the dock.
+
 ## With Docker (recommended)
 
 From the repository root:

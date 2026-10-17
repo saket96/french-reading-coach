@@ -7,7 +7,9 @@ For a shorter overview, see the [root README](../README.md).
 
 ## Before you start (all platforms)
 
-1. Install a **Chromium-based browser**: [Google Chrome](https://www.google.com/chrome/) or [Microsoft Edge](https://www.microsoft.com/edge).
+1. Install a browser:
+   - **Recording**: [Google Chrome](https://www.google.com/chrome/), [Microsoft Edge](https://www.microsoft.com/edge), or [Opera](https://www.opera.com/) (WebM microphone).
+   - **Écouter (TTS)**: Safari on Mac also works well; Chromium browsers need a French **local** voice and a click (**Tester la voix**).
 2. Install **Git**.
 3. Install **Docker** (Desktop on Mac/Windows, Engine + Compose on Linux).
 4. Free roughly **10–20 GB** of disk for images and speech models (more if you enable Whisper **Small**).
@@ -76,9 +78,9 @@ First build can take several minutes (Whisper + OpenPronounce + web).
 
    Expect `200`.
 
-2. Open **http://127.0.0.1:4378** in Chrome or Edge.
-3. Allow microphone access when the browser asks.
-4. For French TTS (Écouter guidé): **System Settings → Accessibility → Spoken Content** (or *Content spoken aloud*) → download a **French** voice.
+2. Open **http://127.0.0.1:4378** in Chrome, Edge, Opera, or Safari.
+3. Allow microphone access when the browser asks (needed for **Enregistrer**).
+4. For French TTS (**Écouter tout / guidé**): **System Settings → Accessibility → Spoken Content** (or *Content spoken aloud*) → download **Amélie** or **Thomas** (Enhanced / Premium). In the app dock (**Voix française**), select that voice and click **Tester la voix**.
 
 ### 6. Optional: Whisper Small
 
@@ -111,7 +113,7 @@ docker compose down
 | Browser | Chrome or Edge | Latest |
 | Git | [Git for Windows](https://git-scm.com/download/win) | Latest |
 
-> **Note:** Firefox and Safari are not recommended (WebM microphone recording).
+> **Note:** Firefox is not recommended for recording (WebM mic). Safari can be used for **Écouter**; prefer Chrome/Edge/Opera for **Enregistrer**.
 
 ### 2. Enable WSL 2 (required by Docker Desktop)
 
@@ -269,6 +271,23 @@ docker compose down
 - If ports are busy: `sudo ss -tlnp | grep -E '4378|9000|8000|9001'`
 - If permission denied on Docker socket: ensure your user is in the `docker` group and you re-logged in.
 - Headless servers: this app needs a browser + mic on the machine (or a remote desktop session) where you practice speaking.
+
+---
+
+## Using the coach (after install)
+
+1. Open **http://127.0.0.1:4378** — the reading passage is wide beside the floating **Outils** dock.
+2. Choose a **Bibliothèque** text or **Mon texte** (paste keeps your line breaks).
+3. In **Outils**:
+   - **Voix française** → pick Amélie/Thomas → **Tester la voix**
+   - Speed: **Lent / Moyen / Rapide**
+   - **Écouter tout** — full passage, word highlight, **auto-scroll** on long texts
+   - **Écouter (guidé)** — current step only
+   - **Clic** Mot/Phrase — tap to hear + translate
+   - **Enregistrer** — needs Whisper green light
+4. **Mes travaux** saves custom texts in the browser; **Révision** drills saved vocabulary.
+
+If **Écouter** is silent in Opera/Chrome: install a **local** French voice, pick it in the dock, click **Tester la voix**, then try again. Safari on Mac is usually the most reliable for listen-only.
 
 ---
 

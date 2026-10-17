@@ -20,12 +20,15 @@ Record yourself reading French (or **shadow** one sentence), get French-aware wo
 - **Whisper ready light** — green when the selected ASR model answers
 - **Base / Small toggle** — Base on port `9000`; optional Small on `9001`
 - **Ombre (shadowing)** — one sentence: listen → record → feedback
+- **Écouter tout / guidé** — French system voice with word highlight; long texts **auto-scroll** to follow the current word
+- **Voix française** — pick a native French TTS voice (Amélie / Thomas Enhanced recommended)
+- **Wide reading panel** — passage uses most of the screen beside the floating **Outils** dock
 - **Free recording** — speak at your own pace (two sentences when Ombre is off)
 - **French-aware scoring** — exact / presque / wrong (fewer false alarms)
-- **Clic mot** — optional tap-to-speak + translate bar
+- **Clic mot / phrase** — tap a word or a whole line to hear + translate; mouse-select any span
 - **Révision** — Leitner-style deck from saved vocabulary
 - **Mes travaux** — simple local database (IndexedDB): save texts, rename titles, reopen later
-- **Custom text** — paste your own French passage
+- **Custom text** — paste your own French passage (line breaks preserved)
 - **OpenPronounce** — optional phoneme-level tips (experimental for French)
 
 ---
@@ -39,7 +42,7 @@ Record yourself reading French (or **shadow** one sentence), get French-aware wo
 | **RAM** | **8 GB minimum**, **16 GB recommended** (Whisper + OpenPronounce) |
 | **Disk** | **10 GB free** minimum; **20 GB+** if you enable Whisper Small |
 | **CPU** | Modern multi-core (models run on **CPU** by default; no GPU required) |
-| **Browser** | **Google Chrome** or **Microsoft Edge** (microphone + WebM). Firefox/Safari not recommended |
+| **Browser** | **Chrome**, **Edge**, or **Opera** for recording (WebM mic). **Safari** works well for **Écouter** (TTS); recording is more reliable on Chromium |
 | **Microphone** | Built-in or USB mic; allow browser permission |
 | **Network** | Needed for first Docker image/model download; vocab gloss may call online lookup APIs |
 | **Docker** | Docker Desktop (Mac/Windows) or Docker Engine + Compose (Linux) |
@@ -157,11 +160,13 @@ More detail: [docs/INSTALL.md § Linux](docs/INSTALL.md#linux).
 
 ## How to use (short)
 
-1. Pick a **Bibliothèque** passage or paste **Mon texte**.
-2. Optional: turn on **Ombre** for one-sentence shadowing; use **Écouter (guidé)** then **Enregistrer**.
-3. Watch the **Whisper** light — prefer **Base** until it is green; use **Small** only after `docker compose --profile small up -d`.
-4. After Stop, read the revue (words, focus items, pronunciation tips).
-5. Enable **Clic mot** to tap words → hear + translate → **Sauver**; open **Révision** to drill the deck.
+1. Pick a **Bibliothèque** passage or paste **Mon texte** (line breaks are kept as you pasted them).
+2. In the floating **Outils** dock: choose a **Voix française**, click **Tester la voix**, set speed (**Lent / Moyen / Rapide**).
+3. **Écouter tout** plays the full passage with highlight + auto-scroll; **Écouter (guidé)** plays the current step only. Use **Stop écoute** to stop.
+4. Optional: turn on **Ombre** for one-sentence shadowing — listen, then **Enregistrer**.
+5. Watch the **Whisper** light — prefer **Base** until it is green; use **Small** only after `docker compose --profile small up -d`.
+6. After Stop, read the revue (words, focus items, pronunciation tips).
+7. Enable **Clic** (**Mot** or **Phrase**) to tap → hear + translate → **Sauver**; open **Révision** to drill the deck. **Mes travaux** saves custom texts locally.
 
 ---
 
@@ -172,8 +177,9 @@ More detail: [docs/INSTALL.md § Linux](docs/INSTALL.md#linux).
 | Page won’t load | `docker compose ps` — ensure `web` is up; open http://127.0.0.1:4378 |
 | Whisper red / 502 | Wait 1–2 min after start; `docker compose restart whisper`; check `curl http://127.0.0.1:9000/docs` |
 | Small model errors | `docker compose --profile small up -d` then `docker compose restart web`; check port `9001` |
-| Mic blocked | Chrome/Edge site settings → allow microphone; use HTTPS-localhost or http://127.0.0.1 |
-| No guided voice | Install a French system/browser TTS voice; listen highlight can still run |
+| Mic blocked | Chrome/Edge/Opera site settings → allow microphone; use http://127.0.0.1 |
+| No guided voice / silent Écouter | Install a **French** system voice (Mac: Accessibility → Spoken Content → Amélie or Thomas Enhanced). In the dock, pick that voice and **Tester la voix**. Opera/Chrome need a click before speech; Safari is usually fine. Prefer a **local / Enhanced** voice over remote Google voices. |
+| Listen highlight but no sound | Same as above; also try another browser (Safari for listen, Chrome/Opera for record). |
 | Pronunciation tip missing | First OpenPronounce start downloads models — wait and check `docker compose logs pronounce` |
 
 ```bash

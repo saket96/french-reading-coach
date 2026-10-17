@@ -965,7 +965,7 @@ export default function App() {
   })
 
   return (
-    <div className="app-shell mx-auto min-h-screen max-w-5xl px-4 py-8 sm:px-6">
+    <div className="app-shell mx-auto min-h-screen max-w-[90rem] px-4 py-8 sm:px-6 lg:px-8">
       <header className="mb-6">
         <p className="text-xs font-semibold tracking-[0.2em] text-ring uppercase">
           Lecture guidée · vocabulaire · prononciation

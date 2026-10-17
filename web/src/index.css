@@ -82,7 +82,9 @@ body {
   }
 
   .app-shell {
-    padding-right: 16rem;
+    /* Room for the floating Outils dock while keeping the passage wide */
+    padding-right: 15.5rem;
+    max-width: min(90rem, calc(100vw - 0.5rem));
   }
 }
 
