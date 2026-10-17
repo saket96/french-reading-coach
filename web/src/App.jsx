@@ -31,7 +31,9 @@ import { buildFocusReview } from './lib/review.js'
 import { countGuidedWords } from './lib/guided.js'
 import {
   charIndexAtWord,
+  listFrenchVoices,
   PACE_PRESETS,
+  setPreferredFrenchVoiceURI,
   speakFrench,
   startReadingGuide,
   stopSpeaking,
@@ -57,6 +59,7 @@ const PASS_THRESHOLD = 0.7
 const CLICK_LEARN_KEY = 'frc-click-learn'
 const CLICK_TARGET_KEY = 'frc-click-target'
 const PACE_KEY = 'frc-speaking-pace'
+const VOICE_KEY = 'frc-french-voice'
 const MODEL_KEY = 'frc-whisper-model'
 const SHADOW_KEY = 'frc-shadow-mode'
 
@@ -106,6 +109,14 @@ function loadShadow() {
     return localStorage.getItem(SHADOW_KEY) === '1'
   } catch {
     return false
+  }
+}
+
+function loadVoiceURI() {
+  try {
+    return localStorage.getItem(VOICE_KEY) || ''
+  } catch {
+    return ''
   }
 }
 
@@ -223,6 +234,8 @@ export default function App() {
   const [clickTarget, setClickTarget] = useState(() => loadClickTarget()) // word | phrase
   const [selectedSentence, setSelectedSentence] = useState(-1)
   const [pace, setPace] = useState(() => loadPace())
+  const [voiceURI, setVoiceURI] = useState(() => loadVoiceURI())
+  const [frenchVoices, setFrenchVoices] = useState([])
   const [whisperModel, setWhisperModel] = useState(() => loadModel())
   const [whisperReady, setWhisperReady] = useState('checking') // checking | ready | down
   const [shadowMode, setShadowMode] = useState(() => loadShadow())
@@ -324,6 +337,44 @@ export default function App() {
       // ignore
     }
   }, [pace])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VOICE_KEY, voiceURI)
+    } catch {
+      // ignore
+    }
+    setPreferredFrenchVoiceURI(voiceURI)
+  }, [voiceURI])
+
+  useEffect(() => {
+    let cancelled = false
+    const refreshVoices = async () => {
+      const list = await listFrenchVoices()
+      if (cancelled) return
+      setFrenchVoices(list)
+      if (!voiceURI && list.length) {
+        // Auto-pick the most natural metropolitan French voice
+        const best =
+          list.find((v) => v.natural && v.accent === 'France') ||
+          list.find((v) => v.natural) ||
+          list[0]
+        if (best?.voiceURI) setVoiceURI(best.voiceURI)
+      } else if (voiceURI && list.length && !list.some((v) => v.voiceURI === voiceURI)) {
+        // Saved voice uninstalled — fall back to best French
+        const best = list[0]
+        if (best?.voiceURI) setVoiceURI(best.voiceURI)
+      }
+    }
+    refreshVoices()
+    const onVoices = () => refreshVoices()
+    window.speechSynthesis?.addEventListener?.('voiceschanged', onVoices)
+    return () => {
+      cancelled = true
+      window.speechSynthesis?.removeEventListener?.('voiceschanged', onVoices)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only hydrate voices once + on browser event
+  }, [])
 
   useEffect(() => {
     try {
@@ -1430,6 +1481,45 @@ export default function App() {
         </div>
 
         <div className="practice-dock__divider" />
+
+        <div className="practice-dock__actions">
+          <p className="practice-dock__label">Voix française</p>
+          <select
+            className="w-full rounded-md border border-border bg-background px-2 py-2 text-xs"
+            value={voiceURI}
+            onChange={(event) => setVoiceURI(event.target.value)}
+            disabled={phase === 'recording'}
+            title="Choisir un locuteur français (accent natif)"
+          >
+            {!frenchVoices.length ? (
+              <option value="">Aucune voix FR — installez-en une</option>
+            ) : (
+              frenchVoices.map((v) => (
+                <option key={v.voiceURI} value={v.voiceURI}>
+                  {v.name} · {v.accent}
+                  {v.natural ? ' · naturel' : ''}
+                </option>
+              ))
+            )}
+          </select>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!voiceURI || phase === 'recording'}
+            onClick={() =>
+              speakFrench('Bonjour, je suis votre coach de lecture française.', {
+                rate: paceConfig.ttsRate,
+              }).catch(() => {})
+            }
+          >
+            <Volume2 className="h-3.5 w-3.5" />
+            Tester la voix
+          </Button>
+          <p className="text-[0.65rem] leading-snug text-muted-foreground">
+            Mac : Réglages → Accessibilité → Contenu lu à voix haute → téléchargez une voix{' '}
+            <strong>française</strong> (Amélie / Thomas Enhanced = plus naturel).
+          </p>
+        </div>
 
         <div>
           <p className="practice-dock__label">Vitesse d’écoute</p>

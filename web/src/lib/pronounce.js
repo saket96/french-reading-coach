@@ -5,6 +5,48 @@ export class PronounceUnavailableError extends Error {
   }
 }
 
+/** Cheap readiness ping for the OpenPronounce container. */
+export async function checkPronounceReady() {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 4000)
+  try {
+    const response = await fetch('/pronounce-health', {
+      method: 'GET',
+      signal: controller.signal,
+    })
+    if (!response.ok) return { ready: false, status: response.status }
+    const data = await response.json().catch(() => ({}))
+    return {
+      ready: response.ok && data?.openpronounce !== false,
+      status: response.status,
+      detail: data,
+    }
+  } catch {
+    return { ready: false, status: 0 }
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+async function readErrorDetail(response) {
+  try {
+    const data = await response.json()
+    if (typeof data?.detail === 'string') return data.detail
+    if (Array.isArray(data?.detail)) {
+      return data.detail.map((d) => d.msg || JSON.stringify(d)).join('; ')
+    }
+    if (typeof data?.message === 'string') return data.message
+  } catch {
+    try {
+      const text = await response.text()
+      if (text) return text.slice(0, 280)
+    } catch {
+      // ignore
+    }
+  }
+  return ''
+}
+
 /**
  * Local OpenPronounce phoneme scoring (French).
  * Returns null fields gracefully when the service is down — Whisper alignment still works.
@@ -23,13 +65,21 @@ export async function assessFrenchPronunciation(blob, expectedText) {
     })
   } catch {
     throw new PronounceUnavailableError(
-      'OpenPronounce n’est pas joignable. Lancez `docker compose up -d` (service pronounce sur le port 8000).',
+      'OpenPronounce n’est pas joignable. Sur votre Mac : `docker compose up -d --build pronounce` puis attendez le démarrage (port 8000).',
     )
   }
 
   if (!response.ok) {
+    const detail = await readErrorDetail(response)
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      throw new PronounceUnavailableError(
+        'OpenPronounce charge encore le modèle FR (~1.2 Go au premier essai). Attendez 1–3 min puis réessayez. `docker compose logs -f pronounce`',
+      )
+    }
     throw new PronounceUnavailableError(
-      `OpenPronounce a renvoyé une erreur (${response.status}).`,
+      detail
+        ? `OpenPronounce (${response.status}) : ${detail}`
+        : `OpenPronounce a renvoyé une erreur (${response.status}). Vérifiez : docker compose logs --tail=80 pronounce`,
     )
   }
 

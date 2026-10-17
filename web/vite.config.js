@@ -37,13 +37,23 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: () => '/docs',
       },
+      // First French OpenPronounce call can download ~1.2GB — allow long waits.
       '/pronunciation': {
         target: pronounceUrl,
         changeOrigin: true,
+        timeout: 600_000,
+        proxyTimeout: 600_000,
       },
       '/phonemes': {
         target: pronounceUrl,
         changeOrigin: true,
+        timeout: 180_000,
+        proxyTimeout: 180_000,
+      },
+      '/pronounce-health': {
+        target: pronounceUrl,
+        changeOrigin: true,
+        rewrite: () => '/health',
       },
       // Reverso (often Cloudflare 403 from Docker — client falls back automatically)
       '/reverso-translate': {

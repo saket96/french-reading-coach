@@ -1,4 +1,19 @@
 let speakGeneration = 0
+/** Learner-selected French voiceURI (persisted by the UI). */
+let preferredFrenchVoiceURI = ''
+
+export function setPreferredFrenchVoiceURI(voiceURI = '') {
+  preferredFrenchVoiceURI = String(voiceURI || '')
+}
+
+export function getPreferredFrenchVoiceURI() {
+  return preferredFrenchVoiceURI
+}
+
+const NATURAL_FR_NAMES =
+  /am[eé]lie|thomas|audrey|marie|claire|daniel|virginie|hortense|sébastien|sebastien|google.*fran|eloquence|enhanced|premium|neural|natural|qualité|quality|siri/i
+
+const ROBOTIC_FR_NAMES = /compact|espeak|festival|robot|novelty/i
 
 function loadVoices() {
   const voices = window.speechSynthesis.getVoices()
@@ -17,26 +32,85 @@ function loadVoices() {
   })
 }
 
-/** Prefer a French voice; otherwise any voice (lang still set to fr-FR). */
-export async function pickFrenchVoice() {
+/** Accent region label from BCP-47 lang (fr-FR → France). */
+export function frenchAccentLabel(lang = '') {
+  const code = String(lang).toLowerCase()
+  if (code.includes('fr-ca') || code.includes('ca')) return 'Canada'
+  if (code.includes('fr-be') || code.includes('be')) return 'Belgique'
+  if (code.includes('fr-ch') || code.includes('ch')) return 'Suisse'
+  if (code.startsWith('fr')) return 'France'
+  return 'Français'
+}
+
+/** Higher = more natural French speaker for learners. */
+export function scoreFrenchVoiceNaturalness(voice) {
+  if (!voice) return -100
+  const name = String(voice.name || '')
+  const lang = String(voice.lang || '').toLowerCase()
+  let score = 0
+  if (lang.startsWith('fr')) score += 50
+  if (lang === 'fr-fr' || lang.startsWith('fr-fr')) score += 20 // metropolitan FR accent
+  if (NATURAL_FR_NAMES.test(name)) score += 30
+  if (ROBOTIC_FR_NAMES.test(name)) score -= 40
+  if (voice.localService) score += 5
+  // Prefer non-default generic names slightly less
+  if (/^french$/i.test(name.trim())) score -= 5
+  return score
+}
+
+/**
+ * List installed French system voices, best (most natural) first.
+ * @returns {Promise<Array<{ voiceURI: string, name: string, lang: string, accent: string, natural: boolean, score: number }>>}
+ */
+export async function listFrenchVoices() {
   const voices = await loadVoices()
   const fr = voices.filter((v) => v.lang?.toLowerCase().startsWith('fr'))
-  return (
-    fr.find((v) =>
-      /thomas|am[eé]lie|audrey|google.*fran|marie|claire|daniel|thomas|virginie|hortense|fiona|sébastien|sebastien/i.test(
-        v.name,
-      ),
-    ) ||
-    fr[0] ||
-    null
+  return fr
+    .map((v) => {
+      const score = scoreFrenchVoiceNaturalness(v)
+      return {
+        voiceURI: v.voiceURI,
+        name: v.name,
+        lang: v.lang,
+        accent: frenchAccentLabel(v.lang),
+        localService: Boolean(v.localService),
+        natural: score >= 70,
+        score,
+      }
+    })
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'fr'))
+}
+
+/**
+ * Pick a French voice. Prefer `voiceURI` when provided and still installed.
+ * Always stays on fr-* so the accent matches French (not English TTS).
+ */
+export async function pickFrenchVoice(voiceURI = preferredFrenchVoiceURI) {
+  const voices = await loadVoices()
+  const fr = voices.filter((v) => v.lang?.toLowerCase().startsWith('fr'))
+  if (!fr.length) return null
+
+  const wanted = voiceURI || preferredFrenchVoiceURI
+  if (wanted) {
+    const match = fr.find((v) => v.voiceURI === wanted || v.name === wanted)
+    if (match) return match
+  }
+
+  const ranked = [...fr].sort(
+    (a, b) => scoreFrenchVoiceNaturalness(b) - scoreFrenchVoiceNaturalness(a),
   )
+  return ranked[0] || null
 }
 
 /**
  * Speak French text. Optional onBoundary(charIndex) for guided highlighting.
+ * Pass `voiceURI` to force a French speaker (accent match).
  * Resolves with `{ status: 'ended' | 'interrupted' }` so callers can resume.
  */
-export async function speakFrench(text, { rate = 0.7, onBoundary } = {}) {
+export async function speakFrench(
+  text,
+  { rate = 0.7, onBoundary, voiceURI = preferredFrenchVoiceURI } = {},
+) {
   if (!text || typeof window === 'undefined' || !window.speechSynthesis) {
     throw new Error('Synthèse vocale indisponible dans ce navigateur')
   }
@@ -54,7 +128,7 @@ export async function speakFrench(text, { rate = 0.7, onBoundary } = {}) {
     // ignore
   }
 
-  const voice = await pickFrenchVoice()
+  const voice = await pickFrenchVoice(voiceURI)
   if (generation !== speakGeneration) return { status: 'interrupted' }
 
   return new Promise((resolve, reject) => {
@@ -64,7 +138,8 @@ export async function speakFrench(text, { rate = 0.7, onBoundary } = {}) {
     }
 
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = voice?.lang?.startsWith('fr') ? voice.lang : 'fr-FR'
+    // Force French language even if no fr voice is installed yet
+    utterance.lang = voice?.lang?.toLowerCase().startsWith('fr') ? voice.lang : 'fr-FR'
     utterance.rate = rate
     if (voice) utterance.voice = voice
 
