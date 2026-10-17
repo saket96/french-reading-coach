@@ -8,6 +8,7 @@ and falls back to transcription-only scoring if full acoustic compare fails.
 from __future__ import annotations
 
 import logging
+import math
 import subprocess
 import tempfile
 import threading
@@ -16,17 +17,21 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("pronounce")
 
-app = FastAPI(title="French pronunciation coach", version="1.2.0")
+app = FastAPI(title="French pronunciation coach", version="1.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Long passages thrash CPU for minutes; score the opening stretch instead.
+MAX_EXPECTED_CHARS = 420
 
 _ready = {
     "openpronounce": False,
@@ -88,6 +93,47 @@ def _score_from_differences(differences: dict) -> float:
     phone = max(0.0, min(1.0, 1.0 - phoneme_er))
     words = max(0.0, min(1.0, 1.0 - word_er))
     return round(100.0 * (0.55 * phone + 0.45 * words), 2)
+
+
+def _truncate_expected(text: str, max_chars: int = MAX_EXPECTED_CHARS) -> str:
+    raw = " ".join(str(text or "").split())
+    if len(raw) <= max_chars:
+        return raw
+    cut = raw[:max_chars]
+    # Prefer ending on a sentence boundary when possible
+    for sep in (". ", "! ", "? ", "… "):
+        idx = cut.rfind(sep)
+        if idx >= max_chars // 3:
+            return cut[: idx + 1].strip()
+    sp = cut.rfind(" ")
+    return (cut[:sp] if sp > 40 else cut).strip()
+
+
+def _json_safe(value):
+    """Convert numpy / nested OpenPronounce payloads into plain JSON types."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    # numpy scalar (has .item())
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return _json_safe(item())
+        except Exception:
+            return str(value)
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    # numpy arrays / other sequences
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist):
+        try:
+            return _json_safe(tolist())
+        except Exception:
+            pass
+    return str(value)
 
 
 def _fallback_transcription_score(sound, expected_text: str, lang: str) -> dict:
@@ -199,7 +245,8 @@ async def pronunciation(
     expected_text: str = Form(...),
     lang: str = Form("fr"),
 ):
-    if not expected_text.strip():
+    expected = _truncate_expected(expected_text)
+    if not expected:
         raise HTTPException(status_code=400, detail="expected_text vide")
 
     try:
@@ -215,6 +262,13 @@ async def pronunciation(
     if suffix not in {".webm", ".ogg", ".wav", ".mp3", ".m4a", ".mp4", ".opus"}:
         suffix = ".webm"
     raw = await file.read()
+    log.info(
+        "POST /pronunciation filename=%s bytes=%s expected_chars=%s lang=%s",
+        filename,
+        len(raw or b""),
+        len(expected),
+        lang,
+    )
     if not raw or len(raw) < 200:
         raise HTTPException(
             status_code=400,
@@ -231,20 +285,34 @@ async def pronunciation(
 
     # Prefer full acoustic + TTS path; fall back if TTS/network/model flakes.
     try:
-        result = compare_audio_with_text(sound, expected_text, lang=lang)
+        result = compare_audio_with_text(sound, expected, lang=lang)
         if isinstance(result, dict):
             result.setdefault("mode", "full")
+            if len(expected_text.strip()) > len(expected):
+                result["expected_truncated"] = True
+                result["expected_used"] = expected
         _ready["openpronounce"] = True
         _ready["fr_ready"] = True
         _ready["last_error"] = ""
-        return result
+        safe = _json_safe(result)
+        log.info("pronunciation OK mode=%s score=%s", safe.get("mode"), safe.get("score"))
+        return JSONResponse(content=safe)
     except Exception as full_exc:
         log.warning("full compare failed (%s); trying transcription-only", full_exc, exc_info=True)
         _ready["last_error"] = str(full_exc)
         try:
-            result = _fallback_transcription_score(sound, expected_text, lang)
+            result = _fallback_transcription_score(sound, expected, lang)
+            if len(expected_text.strip()) > len(expected):
+                result["expected_truncated"] = True
+                result["expected_used"] = expected
             _ready["openpronounce"] = True
-            return result
+            safe = _json_safe(result)
+            log.info(
+                "pronunciation fallback OK mode=%s score=%s",
+                safe.get("mode"),
+                safe.get("score"),
+            )
+            return JSONResponse(content=safe)
         except Exception as fallback_exc:
             _ready["last_error"] = str(fallback_exc)
             log.error(

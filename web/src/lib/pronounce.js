@@ -143,7 +143,9 @@ export async function assessFrenchPronunciation(blob, expectedText) {
 
 /** Normalize OpenPronounce payload into UI-friendly word tips. */
 export function extractPronunciationTips(payload) {
-  if (!payload || typeof payload !== 'object') return { score: null, errors: [], transcript: '' }
+  if (!payload || typeof payload !== 'object') {
+    return { score: null, errors: [], transcript: '', mode: '', note: '' }
+  }
 
   const score =
     typeof payload.score === 'number'
@@ -153,17 +155,25 @@ export function extractPronunciationTips(payload) {
         : null
 
   const rawErrors = payload.differences?.errors ?? payload.errors ?? []
-  const errors = (Array.isArray(rawErrors) ? rawErrors : []).map((err) => ({
-    word: err.word ?? err.target ?? '',
-    expected: err.expected ?? '',
-    actual: err.actual ?? err.heard ?? '',
-    confidence: typeof err.confidence === 'number' ? err.confidence : null,
-  }))
+  const errors = (Array.isArray(rawErrors) ? rawErrors : [])
+    .map((err) => ({
+      word: err.word ?? err.target ?? '',
+      expected: err.expected ?? '',
+      actual: err.actual ?? err.heard ?? '',
+      confidence: typeof err.confidence === 'number' ? err.confidence : null,
+    }))
+    .filter((err) => err.word)
 
   const transcript =
     (typeof payload.transcribe === 'string' && payload.transcribe) ||
     (typeof payload.transcript === 'string' && payload.transcript) ||
     ''
 
-  return { score: Number.isFinite(score) ? score : null, errors, transcript }
+  return {
+    score: Number.isFinite(score) ? score : null,
+    errors,
+    transcript,
+    mode: typeof payload.mode === 'string' ? payload.mode : '',
+    note: typeof payload.note === 'string' ? payload.note : '',
+  }
 }

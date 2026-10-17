@@ -220,6 +220,7 @@ export default function App() {
   const [seconds, setSeconds] = useState(0)
   const [pronounceTips, setPronounceTips] = useState(null)
   const [pronounceNote, setPronounceNote] = useState('')
+  const [pronounceBusy, setPronounceBusy] = useState(false)
   const [vocab, setVocab] = useState(() => loadVocabulary())
   const [lookupWord, setLookupWord] = useState('')
   const [lookupResult, setLookupResult] = useState(null)
@@ -784,10 +785,21 @@ export default function App() {
         setTimedWords(result.words ?? [])
         setPhase('done')
 
+        setPronounceBusy(true)
+        setPronounceTips(null)
+        setPronounceNote('Analyse phonétique en cours… (CPU, 10–60 s)')
         try {
           const raw = await assessFrenchPronunciation(blob, currentChunk)
-          setPronounceTips(extractPronunciationTips(raw))
-          setPronounceNote('')
+          const tips = extractPronunciationTips(raw)
+          setPronounceTips(tips)
+          setPronounceNote(
+            tips.note ||
+              (tips.mode === 'transcription-only'
+                ? 'Score simplifié (sans référence TTS).'
+                : tips.score != null
+                  ? ''
+                  : 'Réponse reçue mais sans score — réessayez.'),
+          )
         } catch (err) {
           setPronounceTips(null)
           setPronounceNote(
@@ -795,6 +807,8 @@ export default function App() {
               ? err.message
               : 'Évaluation phonétique indisponible pour ce tour. Réessayez — sous Opera le premier essai échoue parfois.',
           )
+        } finally {
+          setPronounceBusy(false)
         }
       } catch (err) {
         setError(
@@ -1888,7 +1902,9 @@ export default function App() {
           <div className="rounded-lg border border-border bg-card p-4 space-y-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="font-serif text-xl">Prononciation (phonèmes)</h3>
-              {pronounceTips?.score != null ? (
+              {pronounceBusy ? (
+                <p className="text-sm text-amber-700 animate-pulse">Analyse…</p>
+              ) : pronounceTips?.score != null ? (
                 <p className="text-2xl font-semibold text-ring">
                   {Math.round(pronounceTips.score)}
                   <span className="ml-1 text-sm font-normal text-muted-foreground">/ 100</span>
@@ -1896,7 +1912,13 @@ export default function App() {
               ) : null}
             </div>
             {pronounceNote ? <p className="text-sm text-muted-foreground">{pronounceNote}</p> : null}
-            {pronounceTips?.errors?.length ? (
+            {pronounceBusy ? (
+              <p className="text-sm text-muted-foreground">
+                OpenPronounce compare votre audio au français… regardez aussi{' '}
+                <code className="text-xs">docker compose logs -f pronounce</code> — vous devez voir{' '}
+                <code className="text-xs">POST /pronunciation</code>.
+              </p>
+            ) : pronounceTips?.errors?.length ? (
               <ul className="space-y-2">
                 {pronounceTips.errors.map((err, index) => (
                   <li
@@ -1921,8 +1943,14 @@ export default function App() {
                   </li>
                 ))}
               </ul>
+            ) : pronounceTips?.score != null ? (
+              <p className="text-sm text-muted-foreground">
+                Score {Math.round(pronounceTips.score)}/100 — aucun écart phonétique net signalé.
+              </p>
             ) : !pronounceNote ? (
-              <p className="text-sm text-muted-foreground">Aucun écart phonétique signalé.</p>
+              <p className="text-sm text-muted-foreground">
+                Enregistrez un passage pour obtenir un score de prononciation.
+              </p>
             ) : null}
           </div>
 
