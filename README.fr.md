@@ -183,7 +183,7 @@ Plus de détail : [docs/INSTALL.fr.md § Linux](docs/INSTALL.fr.md#linux).
 | Micro bloqué | Paramètres du site Chrome/Edge/Opera → autoriser le micro ; utilisez http://127.0.0.1 |
 | Pas de voix / Écouter silencieux | Installez une voix système **française** (Mac : Accessibilité → Contenu lu à voix haute → Amélie ou Thomas Enhanced). Dans le dock, choisissez-la et **Tester la voix**. Opera/Chrome exigent un clic avant la parole ; Safari fonctionne en général. Préférez une voix **locale / Enhanced** aux voix Google distantes. |
 | Surlignage sans son | Idem ; essayez un autre navigateur (Safari pour écouter, Chrome/Opera pour enregistrer). |
-| Pas de conseil de prononciation | Au premier démarrage OpenPronounce télécharge des modèles — attendez et regardez `docker compose logs pronounce` |
+| Pas de conseil de prononciation / intermittent | Reconstruisez pronounce (TTS **Piper hors-ligne**, plus Google) : `docker compose up -d --build pronounce`. Attendez le voyant **Prononciation** vert (1er lancement ~1,2 Go + voix Piper). Cliquez **Reset** puis réenregistrez. Voir `docker compose logs -f pronounce`. |
 
 ```bash
 docker compose logs -f web

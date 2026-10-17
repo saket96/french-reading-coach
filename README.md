@@ -183,7 +183,7 @@ More detail: [docs/INSTALL.md § Linux](docs/INSTALL.md#linux).
 | Mic blocked | Chrome/Edge/Opera site settings → allow microphone; use http://127.0.0.1 |
 | No guided voice / silent Écouter | Install a **French** system voice (Mac: Accessibility → Spoken Content → Amélie or Thomas Enhanced). In the dock, pick that voice and **Tester la voix**. Opera/Chrome need a click before speech; Safari is usually fine. Prefer a **local / Enhanced** voice over remote Google voices. |
 | Listen highlight but no sound | Same as above; also try another browser (Safari for listen, Chrome/Opera for record). |
-| Pronunciation tip missing | First OpenPronounce start downloads models — wait and check `docker compose logs pronounce` |
+| Pronunciation tip missing / flaky | Rebuild pronounce (uses **offline Piper**, not Google TTS): `docker compose up -d --build pronounce`. Wait until the **Prononciation** light is green (first run downloads ~1.2 GB FR model + Piper voice). Click **Reset** then re-record. Check `docker compose logs -f pronounce`. |
 
 ```bash
 docker compose logs -f web

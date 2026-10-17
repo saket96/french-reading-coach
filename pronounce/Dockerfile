@@ -21,7 +21,9 @@ RUN pip install --no-cache-dir \
 COPY server.py /app/server.py
 
 ENV OPENPRONOUNCE_DEVICE=cpu
-ENV OPENPRONOUNCE_TTS=gtts
+# Piper is offline after first voice download — gTTS needs Google and fails intermittently.
+ENV OPENPRONOUNCE_TTS=piper
+ENV OPENPRONOUNCE_TTS_VOICE=fr_FR-siwis-medium
 ENV HF_HOME=/models
 VOLUME ["/models"]
 

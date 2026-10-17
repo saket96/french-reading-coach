@@ -291,6 +291,15 @@ docker compose down
 
 Si **Écouter** est silencieux dans Opera/Chrome : installez une voix française **locale**, sélectionnez-la dans le dock, cliquez **Tester la voix**, puis réessayez. Safari sur Mac est souvent le plus fiable pour l’écoute seule.
 
+Si **Prononciation** reste jaune ou échoue après un enregistrement : reconstruisez avec Piper (hors ligne) —
+
+```bash
+docker compose up -d --build pronounce
+docker compose logs -f pronounce
+```
+
+Attendez le voyant vert (**Prononciation prête**), cliquez **Reset** si besoin, puis réenregistrez. Le premier démarrage télécharge le modèle FR (~1,2 Go) et la voix Piper.
+
 ---
 
 ## Vérifier que tout va bien

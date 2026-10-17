@@ -25,13 +25,16 @@ services:
     restart: unless-stopped
 
   # Phoneme-level French pronunciation (OpenPronounce, experimental for FR).
+  # Uses offline Piper TTS (not gTTS) so scoring does not depend on Google.
+  # First start downloads FR ASR (~1.2 GB) + Piper voice — wait for green light.
   pronounce:
     build: ./pronounce
     ports:
       - "8000:8000"
     environment:
       OPENPRONOUNCE_DEVICE: cpu
-      OPENPRONOUNCE_TTS: gtts
+      OPENPRONOUNCE_TTS: piper
+      OPENPRONOUNCE_TTS_VOICE: fr_FR-siwis-medium
       HF_HOME: /models
     volumes:
       - pronounce-model-cache:/models

@@ -291,6 +291,15 @@ docker compose down
 
 If **Écouter** is silent in Opera/Chrome: install a **local** French voice, pick it in the dock, click **Tester la voix**, then try again. Safari on Mac is usually the most reliable for listen-only.
 
+If **Prononciation** stays yellow or fails after recording: rebuild with offline Piper TTS —
+
+```bash
+docker compose up -d --build pronounce
+docker compose logs -f pronounce
+```
+
+Wait until the app light is green (**Prononciation prête**), click **Reset** if needed, then record again. The first start downloads the French model (~1.2 GB) and the Piper voice.
+
 ---
 
 ## Verify everything is healthy

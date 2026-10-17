@@ -7,24 +7,34 @@ export class PronounceUnavailableError extends Error {
   }
 }
 
-/** Cheap readiness ping for the OpenPronounce container. */
+/**
+ * Ping OpenPronounce health.
+ * ready = full FR path OK; warming = models/Piper still downloading;
+ * degraded = import OK but use transcription fallback.
+ */
 export async function checkPronounceReady() {
   const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), 4000)
+  const timer = window.setTimeout(() => controller.abort(), 5000)
   try {
     const response = await fetch('/pronounce-health', {
       method: 'GET',
       signal: controller.signal,
     })
-    if (!response.ok) return { ready: false, status: response.status }
+    if (!response.ok) return { ready: false, warming: false, status: response.status }
     const data = await response.json().catch(() => ({}))
+    const warming = Boolean(data?.warming)
+    const frReady = data?.fr_ready === true
+    const imported = data?.openpronounce !== false
     return {
-      ready: response.ok && data?.openpronounce !== false,
+      // Green only when French warmup finished (models + Piper voice ready)
+      ready: response.ok && imported && frReady && !warming,
+      warming: response.ok && imported && warming,
+      degraded: response.ok && imported && !frReady && !warming,
       status: response.status,
       detail: data,
     }
   } catch {
-    return { ready: false, status: 0 }
+    return { ready: false, warming: false, degraded: false, status: 0 }
   } finally {
     window.clearTimeout(timer)
   }

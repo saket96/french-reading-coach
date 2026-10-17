@@ -240,7 +240,7 @@ export default function App() {
   const [frenchVoices, setFrenchVoices] = useState([])
   const [whisperModel, setWhisperModel] = useState(() => loadModel())
   const [whisperReady, setWhisperReady] = useState('checking') // checking | ready | down
-  const [pronounceReady, setPronounceReady] = useState('checking') // checking | ready | down
+  const [pronounceReady, setPronounceReady] = useState('checking') // checking | ready | warming | down
   const [shadowMode, setShadowMode] = useState(() => loadShadow())
   const [shadowHeard, setShadowHeard] = useState(false)
 
@@ -423,14 +423,24 @@ export default function App() {
     setWhisperReady(result.ready ? 'ready' : 'down')
   }
 
+  const applyPronounceHealth = (result) => {
+    if (result.ready) setPronounceReady('ready')
+    else if (result.warming) setPronounceReady('warming')
+    else setPronounceReady('down')
+  }
+
   /** Clear stuck pronounce UI + re-ping OpenPronounce (helps Opera flaky sessions). */
   const resetPronounceStatus = async () => {
     setPronounceTips(null)
     setPronounceNote('')
     setPronounceReady('checking')
     const result = await checkPronounceReady()
-    setPronounceReady(result.ready ? 'ready' : 'down')
-    if (!result.ready) {
+    applyPronounceHealth(result)
+    if (result.warming) {
+      setPronounceNote(
+        'Prononciation : téléchargement du modèle FR / voix Piper… Attendez le voyant vert (souvent 1–3 min au premier démarrage).',
+      )
+    } else if (!result.ready) {
       setPronounceNote(
         'Prononciation indisponible. Lancez `docker compose up -d --build pronounce`, attendez le voyant vert, puis réenregistrez.',
       )
@@ -455,10 +465,12 @@ export default function App() {
     let cancelled = false
     const ping = async () => {
       const result = await checkPronounceReady()
-      if (!cancelled) setPronounceReady(result.ready ? 'ready' : 'down')
+      if (cancelled) return
+      applyPronounceHealth(result)
     }
     ping()
-    const id = window.setInterval(ping, 10000)
+    // Poll faster while warming so the light flips to green when models finish.
+    const id = window.setInterval(ping, 5000)
     return () => {
       cancelled = true
       window.clearInterval(id)
@@ -1087,14 +1099,20 @@ export default function App() {
               'inline-block h-2.5 w-2.5 rounded-full ' +
               (pronounceReady === 'ready'
                 ? 'bg-emerald-500'
-                : pronounceReady === 'checking'
+                : pronounceReady === 'warming' || pronounceReady === 'checking'
                   ? 'bg-amber-400 animate-pulse'
                   : 'bg-red-500')
             }
             title="État OpenPronounce (conseils phonétiques)"
           />
           Prononciation{' '}
-          {pronounceReady === 'ready' ? 'prête' : pronounceReady === 'checking' ? '…' : 'down'}
+          {pronounceReady === 'ready'
+            ? 'prête'
+            : pronounceReady === 'warming'
+              ? 'chargement…'
+              : pronounceReady === 'checking'
+                ? '…'
+                : 'down'}
         </span>
         <Button
           size="sm"
@@ -1111,9 +1129,14 @@ export default function App() {
             Lancez : <code>docker compose --profile small up -d</code>
           </span>
         ) : null}
+        {pronounceReady === 'warming' ? (
+          <span className="text-xs text-amber-700">
+            Premier démarrage : modèle FR + voix Piper… attendez le vert.
+          </span>
+        ) : null}
         {pronounceReady === 'down' ? (
           <span className="text-xs text-wrong">
-            Lancez : <code>docker compose up -d --build pronounce</code> (1er démarrage long)
+            Lancez : <code>docker compose up -d --build pronounce</code>
           </span>
         ) : null}
       </div>
