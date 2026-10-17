@@ -7,6 +7,8 @@ import {
   Languages,
   Layers,
   Mic,
+  Pause,
+  Play,
   Plus,
   RotateCcw,
   Sparkles,
@@ -39,6 +41,8 @@ import {
   charIndexAtWord,
   listFrenchVoices,
   PACE_PRESETS,
+  pauseSpeaking,
+  resumeSpeaking,
   setPreferredFrenchVoiceURI,
   speakFrench,
   startReadingGuide,
@@ -233,6 +237,7 @@ export default function App() {
   const [activeWorkTitle, setActiveWorkTitle] = useState('')
   const [guideWordIndex, setGuideWordIndex] = useState(-1)
   const [guideMode, setGuideMode] = useState('') // 'listen' | 'listen-all' | 'read' | ''
+  const [listenPaused, setListenPaused] = useState(false)
   const [clickLearn, setClickLearn] = useState(() => loadClickLearn())
   const [clickTarget, setClickTarget] = useState(() => loadClickTarget()) // word | phrase
   const [selectedSentence, setSelectedSentence] = useState(-1)
@@ -486,6 +491,7 @@ export default function App() {
     guideStopRef.current = null
     setGuideWordIndex(-1)
     setGuideMode('')
+    setListenPaused(false)
   }
 
   const stopGuide = () => {
@@ -500,13 +506,36 @@ export default function App() {
     guideStopRef.current = null
     setGuideWordIndex(-1)
     setGuideMode('')
+    setListenPaused(false)
+  }
+
+  const pauseListen = () => {
+    const session = listenSessionRef.current
+    if (!session || session.stopped) return
+    if (session.mode !== 'listen' && session.mode !== 'listen-all') return
+    session.paused = true
+    setListenPaused(true)
+    pauseSpeaking()
+    guideStopRef.current?.pause?.()
+  }
+
+  const resumeListen = () => {
+    const session = listenSessionRef.current
+    if (!session || session.stopped) return
+    if (session.mode !== 'listen' && session.mode !== 'listen-all') return
+    session.paused = false
+    setListenPaused(false)
+    resumeSpeaking()
+    guideStopRef.current?.resume?.()
   }
 
   /** Play (or resume) a listen session from an absolute char index in session.text. */
   const playListenSession = async (session, fromChar = 0) => {
     if (!session || session.stopped) return
     listenSessionRef.current = session
+    session.paused = false
     setGuideMode(session.mode)
+    setListenPaused(false)
     setError('')
 
     const start = Math.max(0, Math.min(fromChar, session.text.length))
@@ -868,6 +897,7 @@ export default function App() {
       lastCharIndex: 0,
       lastWordIndex: 0,
       holdForLookup: false,
+      paused: false,
       stopped: false,
     }
     await playListenSession(session, 0)
@@ -888,6 +918,7 @@ export default function App() {
       lastCharIndex: 0,
       lastWordIndex: 0,
       holdForLookup: false,
+      paused: false,
       stopped: false,
     }
     await playListenSession(session, 0)
@@ -942,6 +973,8 @@ export default function App() {
 
     if (shouldResume) {
       session.holdForLookup = true
+      session.paused = false
+      setListenPaused(false)
       guideStopRef.current?.()
       guideStopRef.current = null
     }
@@ -1765,9 +1798,19 @@ export default function App() {
             Écouter (guidé)
           </Button>
           {guideMode === 'listen' || guideMode === 'listen-all' ? (
-            <Button variant="ghost" onClick={stopGuide}>
-              Stop écoute
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                onClick={listenPaused ? resumeListen : pauseListen}
+                title={listenPaused ? 'Reprendre la lecture' : 'Mettre en pause'}
+              >
+                {listenPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                {listenPaused ? 'Reprendre' : 'Pause'}
+              </Button>
+              <Button variant="ghost" onClick={stopGuide}>
+                Stop écoute
+              </Button>
+            </>
           ) : null}
           {audioUrl ? (
             <Button variant="outline" onClick={() => document.getElementById('replay')?.play()}>

@@ -211,6 +211,12 @@ let resumeKeepaliveId = 0
 /** Active HTMLAudioElement from server TTS (Opera path). */
 let activeServerAudio = null
 let activeServerGuideId = 0
+/** Word-highlight guide state for server TTS (so pause can stop and resume ticks). */
+let serverGuideMeta = null
+/** User pressed Pause — keepalive must not force-resume speechSynthesis. */
+let speakingPaused = false
+/** Generation used by the Blink resume keepalive (re-armed after user resume). */
+let keepaliveGeneration = 0
 
 function stopResumeKeepalive() {
   if (resumeKeepaliveId) {
@@ -219,11 +225,16 @@ function stopResumeKeepalive() {
   }
 }
 
-function stopServerAudio() {
+function clearServerGuideInterval() {
   if (activeServerGuideId) {
     window.clearInterval(activeServerGuideId)
     activeServerGuideId = 0
   }
+}
+
+function stopServerAudio() {
+  clearServerGuideInterval()
+  serverGuideMeta = null
   if (activeServerAudio) {
     try {
       activeServerAudio.pause()
@@ -247,10 +258,11 @@ function stopServerAudio() {
 /** Chrome/Opera freeze speechSynthesis after ~15s unless resume() is poked. */
 function startResumeKeepalive(generation) {
   stopResumeKeepalive()
+  keepaliveGeneration = generation
   if (!isBlinkSpeechEngine()) return
   resumeKeepaliveId = window.setInterval(() => {
-    if (generation !== speakGeneration) {
-      stopResumeKeepalive()
+    if (generation !== speakGeneration || speakingPaused) {
+      if (generation !== speakGeneration) stopResumeKeepalive()
       return
     }
     try {
@@ -263,11 +275,39 @@ function startResumeKeepalive(generation) {
 }
 
 function unlockSpeechSynth(synth) {
+  if (speakingPaused) return
   try {
     if (synth.paused) synth.resume()
   } catch {
     // ignore
   }
+}
+
+function startServerGuideInterval() {
+  clearServerGuideInterval()
+  const meta = serverGuideMeta
+  if (!meta || speakingPaused || typeof meta.onBoundary !== 'function') return
+  if (!meta.words?.length) return
+  activeServerGuideId = window.setInterval(() => {
+    if (meta.generation !== speakGeneration || speakingPaused) {
+      clearServerGuideInterval()
+      if (meta.generation !== speakGeneration) {
+        try {
+          meta.audio?.pause()
+        } catch {
+          // ignore
+        }
+      }
+      return
+    }
+    if (meta.wordIdx >= meta.words.length) {
+      clearServerGuideInterval()
+      return
+    }
+    const word = meta.words[meta.wordIdx]
+    meta.onBoundary(word.index, word.length)
+    meta.wordIdx += 1
+  }, meta.stepMs)
 }
 
 function wordStartsInText(text) {
@@ -317,6 +357,7 @@ function speakOnceViaServer(text, { rate = 0.7, onBoundary } = {}) {
           return
         }
         stopServerAudio()
+        speakingPaused = false
         const url = URL.createObjectURL(blob)
         const audio = new Audio(url)
         audio.dataset.blobUrl = url
@@ -324,17 +365,10 @@ function speakOnceViaServer(text, { rate = 0.7, onBoundary } = {}) {
         activeServerAudio = audio
 
         const words = wordStartsInText(text)
-        let wordIdx = 0
-
-        const clearGuide = () => {
-          if (activeServerGuideId) {
-            window.clearInterval(activeServerGuideId)
-            activeServerGuideId = 0
-          }
-        }
 
         const finish = (status) => {
-          clearGuide()
+          clearServerGuideInterval()
+          if (serverGuideMeta?.audio === audio) serverGuideMeta = null
           try {
             URL.revokeObjectURL(url)
           } catch {
@@ -353,31 +387,21 @@ function speakOnceViaServer(text, { rate = 0.7, onBoundary } = {}) {
         }
 
         const startGuide = () => {
-          clearGuide()
           if (!words.length || typeof onBoundary !== 'function') return
+          if (serverGuideMeta?.audio === audio && activeServerGuideId) return
           const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0
           const effective = duration > 0 ? duration / audio.playbackRate : words.length * 0.45
           const stepMs = Math.max(180, (effective / words.length) * 1000)
           onBoundary(words[0].index, words[0].length)
-          wordIdx = 1
-          activeServerGuideId = window.setInterval(() => {
-            if (generation !== speakGeneration) {
-              clearGuide()
-              try {
-                audio.pause()
-              } catch {
-                // ignore
-              }
-              finish('interrupted')
-              return
-            }
-            if (wordIdx >= words.length) {
-              clearGuide()
-              return
-            }
-            onBoundary(words[wordIdx].index, words[wordIdx].length)
-            wordIdx += 1
-          }, stepMs)
+          serverGuideMeta = {
+            words,
+            wordIdx: 1,
+            stepMs,
+            onBoundary,
+            generation,
+            audio,
+          }
+          if (!speakingPaused) startServerGuideInterval()
         }
 
         audio.onloadedmetadata = startGuide
@@ -386,7 +410,7 @@ function speakOnceViaServer(text, { rate = 0.7, onBoundary } = {}) {
         if (playPromise?.then) {
           playPromise
             .then(() => {
-              if (!activeServerGuideId) startGuide()
+              if (!serverGuideMeta || serverGuideMeta.audio !== audio) startGuide()
             })
             .catch((err) => {
               finish('interrupted')
@@ -411,6 +435,7 @@ function speakOnceViaServer(text, { rate = 0.7, onBoundary } = {}) {
 
 async function speakFrenchViaServer(text, { rate = 0.7, onBoundary } = {}) {
   const generation = ++speakGeneration
+  speakingPaused = false
   stopServerAudio()
   try {
     window.speechSynthesis?.cancel()
@@ -540,6 +565,7 @@ export async function speakFrench(
 
   const synth = window.speechSynthesis
   const generation = ++speakGeneration
+  speakingPaused = false
   const parts = splitTextForSpeech(text)
   if (!parts.length) return { status: 'ended' }
 
@@ -640,6 +666,7 @@ export function charIndexAtWord(displayTokens, wordOrdinal) {
 
 export function stopSpeaking() {
   speakGeneration += 1
+  speakingPaused = false
   stopResumeKeepalive()
   stopServerAudio()
   if (typeof window !== 'undefined' && window.speechSynthesis) {
@@ -649,6 +676,58 @@ export function stopSpeaking() {
       // ignore
     }
   }
+}
+
+/** Pause active Écouter playback (system TTS and/or Opera Piper audio). */
+export function pauseSpeaking() {
+  if (speakingPaused) return
+  speakingPaused = true
+  clearServerGuideInterval()
+  if (activeServerAudio) {
+    try {
+      activeServerAudio.pause()
+    } catch {
+      // ignore
+    }
+  }
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    try {
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        window.speechSynthesis.pause()
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/** Resume after pauseSpeaking(). */
+export function resumeSpeaking() {
+  if (!speakingPaused) return
+  speakingPaused = false
+  if (activeServerAudio) {
+    try {
+      const playPromise = activeServerAudio.play()
+      if (playPromise?.catch) playPromise.catch(() => {})
+    } catch {
+      // ignore
+    }
+    startServerGuideInterval()
+  }
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    try {
+      window.speechSynthesis.resume()
+    } catch {
+      // ignore
+    }
+    if (keepaliveGeneration === speakGeneration) {
+      startResumeKeepalive(speakGeneration)
+    }
+  }
+}
+
+export function isSpeakingPaused() {
+  return speakingPaused
 }
 
 /**
@@ -683,23 +762,43 @@ export const PACE_PRESETS = {
  * Returns a stop() function.
  */
 export function startReadingGuide(wordCount, { wpm = 80, onWord, onDone } = {}) {
+  const makeStop = (clear) => {
+    const stop = () => clear()
+    stop.pause = () => {}
+    stop.resume = () => {}
+    return stop
+  }
   if (wordCount <= 0) {
     onDone?.()
-    return () => {}
+    return makeStop(() => {})
   }
   const msPerWord = Math.max(550, Math.round(60000 / wpm))
   let index = 0
+  let paused = false
+  let id = 0
   onWord?.(0)
-  const id = window.setInterval(() => {
+  id = window.setInterval(() => {
+    if (paused) return
     index += 1
     if (index >= wordCount) {
       window.clearInterval(id)
+      id = 0
       onDone?.()
       return
     }
     onWord?.(index)
   }, msPerWord)
-  return () => window.clearInterval(id)
+  const stop = () => {
+    if (id) window.clearInterval(id)
+    id = 0
+  }
+  stop.pause = () => {
+    paused = true
+  }
+  stop.resume = () => {
+    paused = false
+  }
+  return stop
 }
 
 /**
