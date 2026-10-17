@@ -1544,11 +1544,12 @@ export default function App() {
           {!frenchVoices.length ? (
             <p className="text-[0.65rem] leading-snug text-wrong">
               Aucune voix FR détectée. Mac : Réglages → Accessibilité → Contenu lu à voix haute →
-              téléchargez Amélie ou Thomas (Enhanced).
+              téléchargez Amélie ou Thomas (Enhanced). Opera : préférez une voix « local » / Enhanced.
             </p>
           ) : (
             <p className="text-[0.65rem] leading-snug text-muted-foreground">
-              Locuteur français seulement (accent natif). Prefer « naturel / Enhanced ».
+              Prefer Amélie/Thomas Enhanced (local). Safari et Opera peuvent lister des voix
+              différentes — recliquez Tester la voix après un changement.
             </p>
           )}
         </div>

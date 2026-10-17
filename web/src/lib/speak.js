@@ -40,13 +40,26 @@ export function warmSpeechVoices() {
   syncVoiceCache()
   const onChange = () => syncVoiceCache()
   window.speechSynthesis.addEventListener('voiceschanged', onChange)
-  // Nudge Chrome to populate voices
+  // Nudge Chrome/Opera to populate voices
   try {
     window.speechSynthesis.getVoices()
   } catch {
     // ignore
   }
-  return () => window.speechSynthesis.removeEventListener('voiceschanged', onChange)
+  // Blink: first pointerdown primes speechSynthesis so later Écouter keeps activation.
+  const unlock = () => {
+    try {
+      window.speechSynthesis.getVoices()
+      window.speechSynthesis.resume()
+    } catch {
+      // ignore
+    }
+  }
+  window.addEventListener('pointerdown', unlock, { passive: true })
+  return () => {
+    window.speechSynthesis.removeEventListener('voiceschanged', onChange)
+    window.removeEventListener('pointerdown', unlock)
+  }
 }
 
 function loadVoices() {
@@ -85,7 +98,9 @@ export function scoreFrenchVoiceNaturalness(voice) {
   if (lang === 'fr-fr' || lang.startsWith('fr-fr')) score += 20
   if (NATURAL_FR_NAMES.test(name)) score += 30
   if (ROBOTIC_FR_NAMES.test(name)) score -= 40
-  if (voice.localService) score += 5
+  // Prefer on-device voices — Opera/Chrome remote Google voices often stay silent offline.
+  if (voice.localService) score += 25
+  else score -= 10
   if (/^french$/i.test(name.trim())) score -= 5
   return score
 }
@@ -176,7 +191,55 @@ export function splitTextForSpeech(text, maxLen = 180) {
   return out
 }
 
-function speakOnce(text, { rate, onBoundary, voice }) {
+/** Opera/Chrome (Blink) — Safari is WebKit and much more permissive. */
+function isBlinkSpeechEngine() {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  // Opera stable uses OPR/; Opera GX too. Exclude iOS Opera Touch (uses WebKit).
+  if (/OPR\/|Opera\//i.test(ua) && !/iPhone|iPad|iPod/i.test(ua)) return true
+  return /Chrome\//i.test(ua) && /Safari\//i.test(ua)
+}
+
+let resumeKeepaliveId = 0
+
+function stopResumeKeepalive() {
+  if (resumeKeepaliveId) {
+    window.clearInterval(resumeKeepaliveId)
+    resumeKeepaliveId = 0
+  }
+}
+
+/** Chrome/Opera freeze speechSynthesis after ~15s unless resume() is poked. */
+function startResumeKeepalive(generation) {
+  stopResumeKeepalive()
+  if (!isBlinkSpeechEngine()) return
+  resumeKeepaliveId = window.setInterval(() => {
+    if (generation !== speakGeneration) {
+      stopResumeKeepalive()
+      return
+    }
+    try {
+      const synth = window.speechSynthesis
+      if (synth.speaking || synth.paused) synth.resume()
+    } catch {
+      // ignore
+    }
+  }, 5000)
+}
+
+function unlockSpeechSynth(synth) {
+  try {
+    if (synth.paused) synth.resume()
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Queue one utterance. `assignVoice: false` uses lang only — Opera/Chrome
+ * sometimes stay silent when .voice is set to a Mac enhanced voice.
+ */
+function speakOnce(text, { rate, onBoundary, voice, assignVoice = true }) {
   return new Promise((resolve, reject) => {
     const generation = speakGeneration
     if (!text) {
@@ -184,17 +247,17 @@ function speakOnce(text, { rate, onBoundary, voice }) {
       return
     }
 
-    // Re-resolve by URI so we never assign a stale Voice object.
     const liveVoice = voice
       ? pickFrenchVoiceSync(voice.voiceURI || voice.name) || voice
       : pickFrenchVoiceSync()
 
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = liveVoice?.lang?.toLowerCase().startsWith('fr')
-      ? liveVoice.lang
-      : 'fr-FR'
+    const lang =
+      liveVoice?.lang?.toLowerCase().startsWith('fr') ? liveVoice.lang : 'fr-FR'
+    // Blink is picky about order: lang first, then optional voice.
+    utterance.lang = lang
     utterance.rate = rate
-    if (liveVoice) utterance.voice = liveVoice
+    if (assignVoice && liveVoice) utterance.voice = liveVoice
 
     if (typeof onBoundary === 'function') {
       utterance.onboundary = (event) => {
@@ -219,35 +282,36 @@ function speakOnce(text, { rate, onBoundary, voice }) {
         resolve({ status: 'interrupted' })
         return
       }
+      if (reason === 'not-allowed') {
+        reject(
+          new Error(
+            'Ce navigateur bloque la voix (Opera/Chrome). Cliquez Tester la voix, ou autorisez le son pour ce site.',
+          ),
+        )
+        return
+      }
       reject(new Error(reason || 'Lecture vocale interrompue'))
     }
 
     const synth = window.speechSynthesis
-    try {
-      if (synth.paused) synth.resume()
-    } catch {
-      // ignore
-    }
+    unlockSpeechSynth(synth)
     synth.speak(utterance)
 
-    // Chrome sometimes stays paused after cancel and never starts audio
+    // Blink sometimes stays paused after cancel and never starts audio
     window.setTimeout(() => {
       try {
-        if (generation === speakGeneration && (synth.paused || !synth.speaking)) {
-          synth.resume()
-        }
+        if (generation === speakGeneration) unlockSpeechSynth(synth)
       } catch {
         // ignore
       }
-    }, 30)
+    }, 16)
   })
 }
 
 /**
- * Speak French with a French accent voice when available.
- * Speaks in short chunks (Chrome-safe). Cancels only when needed, and never
- * awaits before the first speak() when the synth is already idle — that
- * delay was silencing Chrome after the voice picker.
+ * Speak French. First utterance is started synchronously (no await before
+ * speak) so Opera/Chrome keep the click's user-activation. Safari already
+ * worked; Blink was going mute after cancel+delay.
  */
 export async function speakFrench(
   text,
@@ -259,54 +323,83 @@ export async function speakFrench(
 
   const synth = window.speechSynthesis
   const generation = ++speakGeneration
-  const voice = pickFrenchVoiceSync(voiceURI)
-
   const parts = splitTextForSpeech(text)
   if (!parts.length) return { status: 'ended' }
 
-  const needsCancel = synth.speaking || synth.pending
-  if (needsCancel) {
+  // Replace in the SAME sync turn as speak — never await between cancel and
+  // the first speak() (Opera/Chrome drop the utterance or lose activation).
+  if (synth.speaking || synth.pending) {
     try {
       synth.cancel()
     } catch {
       // ignore
     }
-    // Chrome drops speak() in the same turn as cancel(); brief yield only then.
-    await new Promise((r) => window.setTimeout(r, 50))
-    if (generation !== speakGeneration) return { status: 'interrupted' }
   }
+  unlockSpeechSynth(synth)
+  startResumeKeepalive(generation)
 
-  try {
-    synth.resume()
-  } catch {
-    // ignore
-  }
-
-  let offset = 0
-
-  for (const part of parts) {
-    if (generation !== speakGeneration) return { status: 'interrupted' }
-    const chunkOffset = offset
-    // Fresh voice each chunk (Voice objects can go stale mid-session)
-    const chunkVoice = pickFrenchVoiceSync(voiceURI) || voice
-    const result = await speakOnce(part, {
+  const runChunk = async (part, chunkOffset, assignVoice) => {
+    const chunkVoice = pickFrenchVoiceSync(voiceURI)
+    return speakOnce(part, {
       rate,
       voice: chunkVoice,
+      assignVoice,
       onBoundary: (charIndex, charLength) => {
         onBoundary?.(chunkOffset + charIndex, charLength)
       },
     })
-    if (result.status === 'interrupted' || generation !== speakGeneration) {
-      return { status: 'interrupted' }
-    }
-    // Keep original spacing when advancing offset through the full string
-    const next = text.indexOf(part, offset)
-    offset = next >= 0 ? next + part.length : offset + part.length
-    // Skip following whitespace so boundary mapping stays aligned
-    while (offset < text.length && /\s/.test(text[offset])) offset += 1
   }
 
-  return { status: generation === speakGeneration ? 'ended' : 'interrupted' }
+  let offset = 0
+  // Opera/Chrome: remote (non-local) voices often produce silence — start lang-only
+  // unless the chosen voice is a local Mac/Windows voice.
+  const initialVoice = pickFrenchVoiceSync(voiceURI)
+  let preferLangOnly =
+    isBlinkSpeechEngine() && initialVoice && initialVoice.localService === false
+
+  try {
+    for (let i = 0; i < parts.length; i += 1) {
+      if (generation !== speakGeneration) return { status: 'interrupted' }
+      const part = parts[i]
+      const chunkOffset = offset
+
+      let result
+      try {
+        result = await runChunk(part, chunkOffset, !preferLangOnly)
+      } catch (err) {
+        const msg = String(err?.message || err || '')
+        // Retry once without .voice — common silent failure on Opera/Chrome + Mac voices
+        if (
+          !preferLangOnly &&
+          i === 0 &&
+          !/not-allowed/i.test(msg) &&
+          generation === speakGeneration
+        ) {
+          preferLangOnly = true
+          try {
+            synth.cancel()
+          } catch {
+            // ignore
+          }
+          unlockSpeechSynth(synth)
+          result = await runChunk(part, chunkOffset, false)
+        } else {
+          throw err
+        }
+      }
+
+      if (result.status === 'interrupted' || generation !== speakGeneration) {
+        return { status: 'interrupted' }
+      }
+      const next = text.indexOf(part, offset)
+      offset = next >= 0 ? next + part.length : offset + part.length
+      while (offset < text.length && /\s/.test(text[offset])) offset += 1
+    }
+
+    return { status: generation === speakGeneration ? 'ended' : 'interrupted' }
+  } finally {
+    if (generation === speakGeneration) stopResumeKeepalive()
+  }
 }
 
 /** Char offset of the start of wordOrdinal in display tokens (includes breaks/spaces). */
@@ -326,8 +419,13 @@ export function charIndexAtWord(displayTokens, wordOrdinal) {
 
 export function stopSpeaking() {
   speakGeneration += 1
+  stopResumeKeepalive()
   if (typeof window !== 'undefined' && window.speechSynthesis) {
-    window.speechSynthesis.cancel()
+    try {
+      window.speechSynthesis.cancel()
+    } catch {
+      // ignore
+    }
   }
 }
 
