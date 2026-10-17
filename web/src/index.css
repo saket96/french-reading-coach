@@ -35,6 +35,9 @@ body {
   font-family: var(--font-serif);
   font-size: clamp(1.15rem, 1.6vw, 1.45rem);
   line-height: 1.75;
+  /* Keep pasted line breaks / paragraphs instead of composing into one block */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .guide-word-active {

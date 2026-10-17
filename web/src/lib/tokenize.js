@@ -18,8 +18,9 @@ export function tokenizeFrench(text) {
 }
 
 /**
- * Split text for on-screen display: keep original casing/punctuation,
+ * Split text for on-screen display: keep original casing/punctuation/newlines,
  * and group elisions (l'avenir) as a single clickable word.
+ * Newlines stay as break tokens so pasted layout is not composed into one line.
  */
 export function splitDisplayTokens(text) {
   if (!text) return []
@@ -31,7 +32,22 @@ export function splitDisplayTokens(text) {
     if (match[1]) {
       tokens.push({ type: 'word', value: match[1], lookup: match[1].toLowerCase() })
     } else if (match[2]) {
-      tokens.push({ type: 'space', value: match[2] })
+      const raw = match[2]
+      if (raw.includes('\n') || raw.includes('\r')) {
+        // Keep each newline as its own break; keep spaces on the same line as spaces.
+        for (const ch of raw) {
+          if (ch === '\n' || ch === '\r') {
+            if (ch === '\r') continue
+            tokens.push({ type: 'break', value: '\n' })
+          } else if (ch === ' ' || ch === '\t') {
+            tokens.push({ type: 'space', value: ch })
+          } else {
+            tokens.push({ type: 'space', value: ch })
+          }
+        }
+      } else {
+        tokens.push({ type: 'space', value: raw })
+      }
     } else if (match[3]) {
       tokens.push({ type: 'punct', value: match[3] })
     }

@@ -1291,12 +1291,15 @@ export default function App() {
         </p>
         <h2 className="mb-4 font-serif text-2xl">{activePassage.title}</h2>
         {fullText ? (
-          <p className="passage-text select-text" onMouseUp={onPassageMouseUp}>
+          <div className="passage-text select-text" onMouseUp={onPassageMouseUp}>
             {(() => {
               let wordOrdinal = -1
               const stepStart = chunkWordOffset
               const stepEnd = chunkWordOffset + wordCount
               return fullDisplayTokens.map((token, index) => {
+                if (token.type === 'break') {
+                  return <br key={`br-${index}`} />
+                }
                 if (token.type !== 'word') {
                   const inSelected =
                     clickLearn &&
@@ -1357,7 +1360,7 @@ export default function App() {
                 )
               })
             })()}
-          </p>
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">
             Ajoutez votre texte ou choisissez un passage de la bibliothèque.

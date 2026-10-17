@@ -21,7 +21,8 @@ export function sentenceTextFromTokens(tokens, sentenceIndex) {
   if (!Array.isArray(tokens) || sentenceIndex < 0) return ''
   return tokens
     .filter((t) => t.sentenceIndex === sentenceIndex)
-    .map((t) => t.value)
+    .map((t) => (t.type === 'break' ? ' ' : t.value))
     .join('')
+    .replace(/\s+/g, ' ')
     .trim()
 }
