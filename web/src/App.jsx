@@ -30,6 +30,7 @@ import {
 import { buildFocusReview } from './lib/review.js'
 import { countGuidedWords } from './lib/guided.js'
 import {
+  charIndexAtWord,
   PACE_PRESETS,
   speakFrench,
   startReadingGuide,
@@ -232,6 +233,8 @@ export default function App() {
   const streamRef = useRef(null)
   const timerRef = useRef(null)
   const guideStopRef = useRef(null)
+  /** Active listen session so a click-explain can resume from the interrupt point. */
+  const listenSessionRef = useRef(null)
 
   const paceConfig = PACE_PRESETS[pace] || PACE_PRESETS.moyen
 
@@ -358,11 +361,103 @@ export default function App() {
   }, [whisperModel])
 
   const stopGuide = () => {
+    if (listenSessionRef.current) listenSessionRef.current.stopped = true
+    listenSessionRef.current = null
     guideStopRef.current?.()
     guideStopRef.current = null
     setGuideWordIndex(-1)
     setGuideMode('')
     stopSpeaking()
+  }
+
+  const finishListenSession = (session) => {
+    if (listenSessionRef.current !== session) return
+    listenSessionRef.current = null
+    guideStopRef.current?.()
+    guideStopRef.current = null
+    setGuideWordIndex(-1)
+    setGuideMode('')
+  }
+
+  /** Play (or resume) a listen session from an absolute char index in session.text. */
+  const playListenSession = async (session, fromChar = 0) => {
+    if (!session || session.stopped) return
+    listenSessionRef.current = session
+    setGuideMode(session.mode)
+    setError('')
+
+    const start = Math.max(0, Math.min(fromChar, session.text.length))
+    const slice = session.text.slice(start)
+    if (!slice.trim()) {
+      finishListenSession(session)
+      return
+    }
+
+    let gotBoundary = false
+    const fallbackTimer = window.setTimeout(() => {
+      if (gotBoundary || guideStopRef.current || listenSessionRef.current !== session) return
+      const startWord = Math.max(0, session.lastWordIndex || 0)
+      const remainingWords = Math.max(0, session.wordCount - startWord)
+      guideStopRef.current = startReadingGuide(remainingWords, {
+        wpm: listenWpmForPace(),
+        onWord: (index) => {
+          const abs = startWord + index
+          session.lastWordIndex = abs
+          setGuideWordIndex(session.wordOffset + abs)
+        },
+        onDone: () => {
+          guideStopRef.current = null
+          finishListenSession(session)
+        },
+      })
+    }, 900)
+
+    try {
+      const result = await speakFrench(slice, {
+        rate: session.rate,
+        onBoundary: (charIndex) => {
+          if (listenSessionRef.current !== session) return
+          gotBoundary = true
+          window.clearTimeout(fallbackTimer)
+          guideStopRef.current?.()
+          guideStopRef.current = null
+          const absChar = start + charIndex
+          session.lastCharIndex = absChar
+          const idx = wordIndexFromCharIndex(session.text, session.tokens, absChar)
+          if (idx >= 0) {
+            session.lastWordIndex = idx
+            setGuideWordIndex(session.wordOffset + idx)
+          }
+        },
+      })
+      window.clearTimeout(fallbackTimer)
+      if (listenSessionRef.current !== session || session.stopped) return
+      if (session.holdForLookup) return
+      if (result?.status === 'interrupted') return
+      if (!guideStopRef.current) finishListenSession(session)
+    } catch {
+      window.clearTimeout(fallbackTimer)
+      if (listenSessionRef.current !== session || session.stopped || session.holdForLookup) return
+      if (!guideStopRef.current) {
+        const startWord = Math.max(0, session.lastWordIndex || 0)
+        const remainingWords = Math.max(0, session.wordCount - startWord)
+        guideStopRef.current = startReadingGuide(remainingWords, {
+          wpm: listenWpmForPace(),
+          onWord: (index) => {
+            const abs = startWord + index
+            session.lastWordIndex = abs
+            setGuideWordIndex(session.wordOffset + abs)
+          },
+          onDone: () => {
+            guideStopRef.current = null
+            finishListenSession(session)
+          },
+        })
+      }
+      setError(
+        'La voix système n’a pas démarré. Sur Mac : Réglages système → Accessibilité → Contenu lu à voix haute → téléchargez une voix française. Le surlignage continue sans audio.',
+      )
+    }
   }
 
   useEffect(() => {
@@ -592,124 +687,38 @@ export default function App() {
     const text = fullText
     if (!text) return
     stopGuide()
-    setError('')
-    setGuideMode('listen-all')
-    setGuideWordIndex(-1)
-    const tokens = fullDisplayTokens
-    let gotBoundary = false
-
-    const fallbackTimer = window.setTimeout(() => {
-      if (gotBoundary || guideStopRef.current) return
-      guideStopRef.current = startReadingGuide(fullWordCount, {
-        wpm: listenWpmForPace(),
-        onWord: (index) => setGuideWordIndex(index),
-        onDone: () => {
-          setGuideWordIndex(-1)
-          setGuideMode('')
-          guideStopRef.current = null
-        },
-      })
-    }, 900)
-
-    try {
-      await speakFrench(text, {
-        rate: listenRateForPace(),
-        onBoundary: (charIndex) => {
-          gotBoundary = true
-          window.clearTimeout(fallbackTimer)
-          guideStopRef.current?.()
-          guideStopRef.current = null
-          const idx = wordIndexFromCharIndex(text, tokens, charIndex)
-          if (idx >= 0) setGuideWordIndex(idx)
-        },
-      })
-      window.clearTimeout(fallbackTimer)
-      if (!guideStopRef.current) {
-        setGuideWordIndex(-1)
-        setGuideMode('')
-      }
-    } catch {
-      window.clearTimeout(fallbackTimer)
-      if (!guideStopRef.current) {
-        guideStopRef.current = startReadingGuide(fullWordCount, {
-          wpm: listenWpmForPace(),
-          onWord: (index) => setGuideWordIndex(index),
-          onDone: () => {
-            setGuideWordIndex(-1)
-            setGuideMode('')
-            guideStopRef.current = null
-          },
-        })
-      }
-      setError(
-        'La voix système n’a pas démarré. Sur Mac : Réglages système → Accessibilité → Contenu lu à voix haute → téléchargez une voix française. Le surlignage du texte entier continue sans audio.',
-      )
+    const session = {
+      mode: 'listen-all',
+      text,
+      tokens: fullDisplayTokens,
+      rate: listenRateForPace(),
+      wordOffset: 0,
+      wordCount: fullWordCount,
+      lastCharIndex: 0,
+      lastWordIndex: 0,
+      holdForLookup: false,
+      stopped: false,
     }
+    await playListenSession(session, 0)
   }
 
   const listenChunk = async () => {
     if (!currentChunk) return
     stopGuide()
-    setError('')
-    setGuideMode('listen')
     setShadowHeard(true)
-    const tokens = displayTokens
-    const text = currentChunk
-    const offset = chunkWordOffset
-    let gotBoundary = false
-
-    // If the browser never fires word boundaries, fall back to timed highlight
-    const fallbackTimer = window.setTimeout(() => {
-      if (gotBoundary || guideStopRef.current) return
-      guideStopRef.current = startReadingGuide(wordCount, {
-        wpm: listenWpmForPace(),
-        onWord: (index) => setGuideWordIndex(offset + index),
-        onDone: () => {
-          setGuideWordIndex(-1)
-          setGuideMode('')
-          guideStopRef.current = null
-        },
-      })
-    }, 900)
-
-    const listenWpm = listenWpmForPace()
-    const listenRate = listenRateForPace()
-
-    try {
-      await speakFrench(text, {
-        rate: listenRate,
-        onBoundary: (charIndex) => {
-          gotBoundary = true
-          window.clearTimeout(fallbackTimer)
-          // Prefer TTS sync over the timed guide
-          guideStopRef.current?.()
-          guideStopRef.current = null
-          const idx = wordIndexFromCharIndex(text, tokens, charIndex)
-          if (idx >= 0) setGuideWordIndex(offset + idx)
-        },
-      })
-      window.clearTimeout(fallbackTimer)
-      if (!guideStopRef.current) {
-        setGuideWordIndex(-1)
-        setGuideMode('')
-      }
-    } catch {
-      window.clearTimeout(fallbackTimer)
-      if (!guideStopRef.current) {
-        guideStopRef.current = startReadingGuide(wordCount, {
-          wpm: listenWpm,
-          onWord: (index) => setGuideWordIndex(offset + index),
-          onDone: () => {
-            setGuideWordIndex(-1)
-            setGuideMode('')
-            guideStopRef.current = null
-          },
-        })
-      }
-      setError(
-        'La voix système n’a pas démarré. Sur Mac : Réglages système → Accessibilité → Contenu lu à voix haute → téléchargez une voix française. Le surlignage guidé continue sans audio.',
-      )
+    const session = {
+      mode: 'listen',
+      text: currentChunk,
+      tokens: displayTokens,
+      rate: listenRateForPace(),
+      wordOffset: chunkWordOffset,
+      wordCount,
+      lastCharIndex: 0,
+      lastWordIndex: 0,
+      holdForLookup: false,
+      stopped: false,
     }
+    await playListenSession(session, 0)
   }
 
   const listenWord = (word) => {
@@ -753,8 +762,20 @@ export default function App() {
     }
     if (!cleaned) return
 
+    const session = listenSessionRef.current
+    const shouldResume =
+      Boolean(session) &&
+      !session.stopped &&
+      (session.mode === 'listen' || session.mode === 'listen-all')
+
+    if (shouldResume) {
+      session.holdForLookup = true
+      guideStopRef.current?.()
+      guideStopRef.current = null
+    }
+
     if (speak) {
-      speakFrench(cleaned, { rate: kind === 'sentence' ? 0.7 : 0.62 }).catch(() => {})
+      await speakFrench(cleaned, { rate: kind === 'sentence' ? 0.7 : 0.62 }).catch(() => {})
     }
 
     setLookupWord(cleaned)
@@ -783,6 +804,20 @@ export default function App() {
       })
     } finally {
       setLookupBusy(false)
+    }
+
+    if (
+      shouldResume &&
+      listenSessionRef.current === session &&
+      !session.stopped
+    ) {
+      session.holdForLookup = false
+      // Resume from the word that was playing when interrupted
+      const resumeAt = charIndexAtWord(session.tokens, Math.max(0, session.lastWordIndex || 0))
+      await new Promise((r) => window.setTimeout(r, 350))
+      if (listenSessionRef.current === session && !session.stopped) {
+        await playListenSession(session, resumeAt)
+      }
     }
   }
 
@@ -1381,13 +1416,14 @@ export default function App() {
         ) : null}
         {guideMode === 'listen' ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Écoute guidée de l’étape ({paceConfig.label}) — le reste du texte reste visible en
-            gris.
+            Écoute guidée ({paceConfig.label}). Un clic explique, puis la lecture reprend où elle
+            s’était arrêtée.
           </p>
         ) : null}
         {guideMode === 'listen-all' ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Texte entier ({paceConfig.label}) — suivez le mot surligné.
+            Texte entier ({paceConfig.label}). Cliquez un mot/phrase pour l’expliquer — la lecture
+            reprend ensuite.
           </p>
         ) : null}
       </section>

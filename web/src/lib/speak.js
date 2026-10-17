@@ -34,7 +34,7 @@ export async function pickFrenchVoice() {
 
 /**
  * Speak French text. Optional onBoundary(charIndex) for guided highlighting.
- * Tolerates missing fr-FR voices and cancel/interrupted races on Chrome/Safari.
+ * Resolves with `{ status: 'ended' | 'interrupted' }` so callers can resume.
  */
 export async function speakFrench(text, { rate = 0.7, onBoundary } = {}) {
   if (!text || typeof window === 'undefined' || !window.speechSynthesis) {
@@ -45,7 +45,7 @@ export async function speakFrench(text, { rate = 0.7, onBoundary } = {}) {
   window.speechSynthesis.cancel()
   // Let the cancel settle (Chrome often fires "interrupted" otherwise)
   await new Promise((r) => window.setTimeout(r, 80))
-  if (generation !== speakGeneration) return
+  if (generation !== speakGeneration) return { status: 'interrupted' }
 
   // Chrome can leave the synth paused after cancel
   try {
@@ -55,11 +55,11 @@ export async function speakFrench(text, { rate = 0.7, onBoundary } = {}) {
   }
 
   const voice = await pickFrenchVoice()
-  if (generation !== speakGeneration) return
+  if (generation !== speakGeneration) return { status: 'interrupted' }
 
   return new Promise((resolve, reject) => {
     if (generation !== speakGeneration) {
-      resolve()
+      resolve({ status: 'interrupted' })
       return
     }
 
@@ -78,19 +78,19 @@ export async function speakFrench(text, { rate = 0.7, onBoundary } = {}) {
     }
 
     utterance.onend = () => {
-      if (generation === speakGeneration) resolve()
-      else resolve()
+      if (generation === speakGeneration) resolve({ status: 'ended' })
+      else resolve({ status: 'interrupted' })
     }
 
     utterance.onerror = (event) => {
       const reason = event?.error || ''
       // Expected when we cancel to start a new utterance or stop the guide
       if (reason === 'interrupted' || reason === 'canceled' || reason === 'cancelled') {
-        resolve()
+        resolve({ status: 'interrupted' })
         return
       }
       if (generation !== speakGeneration) {
-        resolve()
+        resolve({ status: 'interrupted' })
         return
       }
       reject(new Error(reason || 'Lecture vocale interrompue'))
@@ -107,6 +107,21 @@ export async function speakFrench(text, { rate = 0.7, onBoundary } = {}) {
       }
     }, 50)
   })
+}
+
+/** Char offset of the start of wordOrdinal in display tokens (includes breaks/spaces). */
+export function charIndexAtWord(displayTokens, wordOrdinal) {
+  if (!displayTokens?.length || wordOrdinal < 0) return 0
+  let cursor = 0
+  let word = -1
+  for (const token of displayTokens) {
+    if (token.type === 'word') {
+      word += 1
+      if (word === wordOrdinal) return cursor
+    }
+    cursor += String(token.value ?? '').length
+  }
+  return cursor
 }
 
 export function stopSpeaking() {
