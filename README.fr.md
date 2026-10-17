@@ -30,7 +30,7 @@ Enregistrez-vous en train de lire le français (ou faites de l’**ombre** sur u
 - **Score adapté au français** — exact / presque / erreur (moins de fausses alertes)
 - **Clic mot / phrase** — toucher un mot ou une ligne pour entendre + traduire ; sélection souris possible
 - **Révision** — paquet Leitner à partir du vocabulaire sauvé
-- **Mes travaux** — base locale (IndexedDB) : enregistrer des textes, renommer, rouvrir
+- **Mes travaux** — base locale (IndexedDB) : enregistrer des textes, renommer, rouvrir ; **Exporter / Importer** JSON pour passer d’un navigateur à un autre (Opera ≠ Safari)
 - **Texte perso** — collez votre propre passage (les retours à la ligne sont conservés)
 - **OpenPronounce** — conseils phonétiques optionnels (expérimental pour le français)
 

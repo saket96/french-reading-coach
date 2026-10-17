@@ -30,7 +30,7 @@ Record yourself reading French (or **shadow** one sentence), get French-aware wo
 - **French-aware scoring** — exact / presque / wrong (fewer false alarms)
 - **Clic mot / phrase** — tap a word or a whole line to hear + translate; mouse-select any span
 - **Révision** — Leitner-style deck from saved vocabulary
-- **Mes travaux** — simple local database (IndexedDB): save texts, rename titles, reopen later
+- **Mes travaux** — simple local database (IndexedDB): save texts, rename titles, reopen later; **Export / Import** JSON to move data between browsers (Opera ≠ Safari)
 - **Custom text** — paste your own French passage (line breaks preserved)
 - **OpenPronounce** — optional phoneme-level tips (experimental for French)
 

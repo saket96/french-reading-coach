@@ -1,6 +1,12 @@
-import { useEffect, useState } from 'react'
-import { FolderOpen, Pencil, Save, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Download, FolderOpen, Pencil, Save, Trash2, Upload } from 'lucide-react'
 import { Button } from './ui/button.jsx'
+import {
+  downloadBackupJson,
+  exportBrowserBackup,
+  importBrowserBackup,
+  readBackupFile,
+} from '../lib/browserBackup.js'
 import {
   defaultWorkTitle,
   deleteWork,
@@ -34,13 +40,54 @@ export function WorksPanel({
   const [works, setWorks] = useState([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
   const [titleDraft, setTitleDraft] = useState(() => defaultWorkTitle(currentText || ''))
   const [renamingId, setRenamingId] = useState('')
   const [renameValue, setRenameValue] = useState('')
+  const fileInputRef = useRef(null)
 
   const refresh = async () => {
     const rows = await listWorks()
     setWorks(rows)
+  }
+
+  const handleExport = async () => {
+    setBusy(true)
+    setError('')
+    setInfo('')
+    try {
+      const backup = await exportBrowserBackup()
+      downloadBackupJson(backup)
+      setInfo(
+        `Exporté : ${backup.works?.length || 0} travail(x), ${backup.vocabulary?.length || 0} mot(s). Ouvrez ce fichier dans Safari (Importer).`,
+      )
+    } catch (err) {
+      setError(err.message || 'Export impossible')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setBusy(true)
+    setError('')
+    setInfo('')
+    try {
+      const backup = await readBackupFile(file)
+      const result = await importBrowserBackup(backup, { mergeWorks: true })
+      await refresh()
+      setInfo(
+        `Importé : ${result.works} travail(x), ${result.vocabulary} mot(s). Rechargez la page si le vocabulaire / réglages ne s’affichent pas encore.`,
+      )
+      onSaved?.(null)
+    } catch (err) {
+      setError(err.message || 'Import impossible — choisissez un JSON exporté depuis le coach')
+    } finally {
+      setBusy(false)
+    }
   }
 
   useEffect(() => {
@@ -135,12 +182,40 @@ export function WorksPanel({
         <div>
           <h2 className="font-serif text-xl">Mes travaux</h2>
           <p className="text-xs text-muted-foreground">
-            Base locale (IndexedDB) — titres renommables, texte sauvé sur cet appareil.
+            Base locale (IndexedDB) — sauvée <strong>par navigateur</strong> (Opera ≠ Safari).
+            Exportez puis importez pour partager entre navigateurs.
           </p>
         </div>
         <Button variant="outline" onClick={onClose}>
           Fermer
         </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2 rounded-lg border border-border bg-muted/20 p-3">
+        <Button size="sm" variant="outline" onClick={handleExport} disabled={busy}>
+          <Download className="h-3.5 w-3.5" />
+          Exporter (JSON)
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={busy}
+        >
+          <Upload className="h-3.5 w-3.5" />
+          Importer
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={handleImportFile}
+        />
+        <p className="w-full text-[0.7rem] text-muted-foreground">
+          Inclut Mes travaux, vocabulaire, texte perso et réglages. Utile pour passer d’Opera à
+          Safari.
+        </p>
       </div>
 
       <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 space-y-2">
@@ -172,6 +247,7 @@ export function WorksPanel({
       </div>
 
       {error ? <p className="text-sm text-wrong">{error}</p> : null}
+      {info ? <p className="text-sm text-ring">{info}</p> : null}
 
       {works.length ? (
         <ul className="divide-y divide-border rounded-md border border-border">
