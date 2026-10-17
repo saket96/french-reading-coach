@@ -37,6 +37,7 @@ import {
   speakFrench,
   startReadingGuide,
   stopSpeaking,
+  warmSpeechVoices,
   wordIndexFromCharIndex,
 } from './lib/speak.js'
 import {
@@ -348,32 +349,30 @@ export default function App() {
   }, [voiceURI])
 
   useEffect(() => {
+    const stopWarm = warmSpeechVoices()
     let cancelled = false
     const refreshVoices = async () => {
       const list = await listFrenchVoices()
       if (cancelled) return
       setFrenchVoices(list)
-      if (!voiceURI && list.length) {
-        // Auto-pick the most natural metropolitan French voice
+      setVoiceURI((current) => {
+        if (!list.length) return current
+        if (current && list.some((v) => v.voiceURI === current)) return current
         const best =
           list.find((v) => v.natural && v.accent === 'France') ||
           list.find((v) => v.natural) ||
           list[0]
-        if (best?.voiceURI) setVoiceURI(best.voiceURI)
-      } else if (voiceURI && list.length && !list.some((v) => v.voiceURI === voiceURI)) {
-        // Saved voice uninstalled — fall back to best French
-        const best = list[0]
-        if (best?.voiceURI) setVoiceURI(best.voiceURI)
-      }
+        return best?.voiceURI || current
+      })
     }
     refreshVoices()
     const onVoices = () => refreshVoices()
     window.speechSynthesis?.addEventListener?.('voiceschanged', onVoices)
     return () => {
       cancelled = true
+      stopWarm?.()
       window.speechSynthesis?.removeEventListener?.('voiceschanged', onVoices)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only hydrate voices once + on browser event
   }, [])
 
   useEffect(() => {
@@ -464,6 +463,8 @@ export default function App() {
     }, 900)
 
     try {
+      // Highlight first word immediately so the UI reacts even if TTS is slow
+      setGuideWordIndex(session.wordOffset + Math.max(0, session.lastWordIndex || 0))
       const result = await speakFrench(slice, {
         rate: session.rate,
         onBoundary: (charIndex) => {
@@ -484,9 +485,12 @@ export default function App() {
       window.clearTimeout(fallbackTimer)
       if (listenSessionRef.current !== session || session.stopped) return
       if (session.holdForLookup) return
-      if (result?.status === 'interrupted') return
+      if (result?.status === 'interrupted') {
+        // Interrupted by another speak/stop — don't clear UI mid-lookup
+        return
+      }
       if (!guideStopRef.current) finishListenSession(session)
-    } catch {
+    } catch (err) {
       window.clearTimeout(fallbackTimer)
       if (listenSessionRef.current !== session || session.stopped || session.holdForLookup) return
       if (!guideStopRef.current) {
@@ -506,7 +510,8 @@ export default function App() {
         })
       }
       setError(
-        'La voix système n’a pas démarré. Sur Mac : Réglages système → Accessibilité → Contenu lu à voix haute → téléchargez une voix française. Le surlignage continue sans audio.',
+        err?.message ||
+          'La voix française n’a pas démarré. Choisissez une voix dans le panneau (Voix française), ou téléchargez Amélie/Thomas : Réglages → Accessibilité → Contenu lu à voix haute.',
       )
     }
   }
@@ -1505,20 +1510,32 @@ export default function App() {
           <Button
             size="sm"
             variant="outline"
-            disabled={!voiceURI || phase === 'recording'}
-            onClick={() =>
+            disabled={phase === 'recording'}
+            onClick={() => {
+              setError('')
               speakFrench('Bonjour, je suis votre coach de lecture française.', {
                 rate: paceConfig.ttsRate,
-              }).catch(() => {})
-            }
+              }).catch((err) => {
+                setError(
+                  err?.message ||
+                    'Impossible de parler. Installez une voix française (Amélie / Thomas).',
+                )
+              })
+            }}
           >
             <Volume2 className="h-3.5 w-3.5" />
             Tester la voix
           </Button>
-          <p className="text-[0.65rem] leading-snug text-muted-foreground">
-            Mac : Réglages → Accessibilité → Contenu lu à voix haute → téléchargez une voix{' '}
-            <strong>française</strong> (Amélie / Thomas Enhanced = plus naturel).
-          </p>
+          {!frenchVoices.length ? (
+            <p className="text-[0.65rem] leading-snug text-wrong">
+              Aucune voix FR détectée. Mac : Réglages → Accessibilité → Contenu lu à voix haute →
+              téléchargez Amélie ou Thomas (Enhanced).
+            </p>
+          ) : (
+            <p className="text-[0.65rem] leading-snug text-muted-foreground">
+              Locuteur français seulement (accent natif). Prefer « naturel / Enhanced ».
+            </p>
+          )}
         </div>
 
         <div>

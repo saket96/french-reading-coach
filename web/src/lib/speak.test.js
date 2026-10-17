@@ -5,6 +5,7 @@ import {
   frenchAccentLabel,
   PACE_PRESETS,
   scoreFrenchVoiceNaturalness,
+  splitTextForSpeech,
   wordIndexFromCharIndex,
 } from './speak.js'
 import { splitDisplayTokens } from './tokenize.js'
@@ -54,4 +55,17 @@ test('scoreFrenchVoiceNaturalness prefers natural FR-FR voices', () => {
   })
   assert.ok(amelie > compact)
   assert.ok(amelie > english)
+})
+
+test('splitTextForSpeech keeps short text as one chunk', () => {
+  assert.deepEqual(splitTextForSpeech('Bonjour.'), ['Bonjour.'])
+})
+
+test('splitTextForSpeech splits long multi-sentence text', () => {
+  const text = Array.from({ length: 8 }, (_, i) => `Phrase numéro ${i + 1} avec du contenu.`).join(
+    ' ',
+  )
+  const parts = splitTextForSpeech(text, 80)
+  assert.ok(parts.length > 1)
+  assert.equal(parts.join(' ').replace(/\s+/g, ' '), text.replace(/\s+/g, ' '))
 })

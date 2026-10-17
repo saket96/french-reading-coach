@@ -1,6 +1,8 @@
 let speakGeneration = 0
 /** Learner-selected French voiceURI (persisted by the UI). */
 let preferredFrenchVoiceURI = ''
+/** Cached SpeechSynthesisVoice list — keep sync so speak() stays in the click gesture. */
+let cachedVoices = []
 
 export function setPreferredFrenchVoiceURI(voiceURI = '') {
   preferredFrenchVoiceURI = String(voiceURI || '')
@@ -15,29 +17,54 @@ const NATURAL_FR_NAMES =
 
 const ROBOTIC_FR_NAMES = /compact|espeak|festival|robot|novelty/i
 
+function syncVoiceCache() {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return cachedVoices
+  try {
+    const list = window.speechSynthesis.getVoices()
+    if (list?.length) cachedVoices = [...list]
+  } catch {
+    // ignore
+  }
+  return cachedVoices
+}
+
+/** Call once on app boot so voices are ready before the first Écouter click. */
+export function warmSpeechVoices() {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return () => {}
+  syncVoiceCache()
+  const onChange = () => syncVoiceCache()
+  window.speechSynthesis.addEventListener('voiceschanged', onChange)
+  // Nudge Chrome to populate voices
+  try {
+    window.speechSynthesis.getVoices()
+  } catch {
+    // ignore
+  }
+  return () => window.speechSynthesis.removeEventListener('voiceschanged', onChange)
+}
+
 function loadVoices() {
-  const voices = window.speechSynthesis.getVoices()
-  if (voices.length) return Promise.resolve(voices)
+  const now = syncVoiceCache()
+  if (now.length) return Promise.resolve(now)
   return new Promise((resolve) => {
     const done = () => {
       window.speechSynthesis.removeEventListener('voiceschanged', done)
-      resolve(window.speechSynthesis.getVoices())
+      resolve(syncVoiceCache())
     }
     window.speechSynthesis.addEventListener('voiceschanged', done)
-    // Safari / Chrome sometimes never fire voiceschanged if empty
     window.setTimeout(() => {
       window.speechSynthesis.removeEventListener('voiceschanged', done)
-      resolve(window.speechSynthesis.getVoices())
-    }, 600)
+      resolve(syncVoiceCache())
+    }, 400)
   })
 }
 
 /** Accent region label from BCP-47 lang (fr-FR → France). */
 export function frenchAccentLabel(lang = '') {
   const code = String(lang).toLowerCase()
-  if (code.includes('fr-ca') || code.includes('ca')) return 'Canada'
-  if (code.includes('fr-be') || code.includes('be')) return 'Belgique'
-  if (code.includes('fr-ch') || code.includes('ch')) return 'Suisse'
+  if (code.includes('fr-ca') || code.endsWith('-ca')) return 'Canada'
+  if (code.includes('fr-be') || code.endsWith('-be')) return 'Belgique'
+  if (code.includes('fr-ch') || code.endsWith('-ch')) return 'Suisse'
   if (code.startsWith('fr')) return 'France'
   return 'Français'
 }
@@ -49,44 +76,41 @@ export function scoreFrenchVoiceNaturalness(voice) {
   const lang = String(voice.lang || '').toLowerCase()
   let score = 0
   if (lang.startsWith('fr')) score += 50
-  if (lang === 'fr-fr' || lang.startsWith('fr-fr')) score += 20 // metropolitan FR accent
+  if (lang === 'fr-fr' || lang.startsWith('fr-fr')) score += 20
   if (NATURAL_FR_NAMES.test(name)) score += 30
   if (ROBOTIC_FR_NAMES.test(name)) score -= 40
   if (voice.localService) score += 5
-  // Prefer non-default generic names slightly less
   if (/^french$/i.test(name.trim())) score -= 5
   return score
 }
 
-/**
- * List installed French system voices, best (most natural) first.
- * @returns {Promise<Array<{ voiceURI: string, name: string, lang: string, accent: string, natural: boolean, score: number }>>}
- */
-export async function listFrenchVoices() {
-  const voices = await loadVoices()
-  const fr = voices.filter((v) => v.lang?.toLowerCase().startsWith('fr'))
-  return fr
-    .map((v) => {
-      const score = scoreFrenchVoiceNaturalness(v)
-      return {
-        voiceURI: v.voiceURI,
-        name: v.name,
-        lang: v.lang,
-        accent: frenchAccentLabel(v.lang),
-        localService: Boolean(v.localService),
-        natural: score >= 70,
-        score,
-      }
-    })
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'fr'))
+function toVoiceOption(v) {
+  const score = scoreFrenchVoiceNaturalness(v)
+  return {
+    voiceURI: v.voiceURI,
+    name: v.name,
+    lang: v.lang,
+    accent: frenchAccentLabel(v.lang),
+    localService: Boolean(v.localService),
+    natural: score >= 70,
+    score,
+  }
 }
 
 /**
- * Pick a French voice. Prefer `voiceURI` when provided and still installed.
- * Always stays on fr-* so the accent matches French (not English TTS).
+ * List installed French system voices, best (most natural) first.
  */
-export async function pickFrenchVoice(voiceURI = preferredFrenchVoiceURI) {
+export async function listFrenchVoices() {
   const voices = await loadVoices()
+  return voices
+    .filter((v) => v.lang?.toLowerCase().startsWith('fr'))
+    .map(toVoiceOption)
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'fr'))
+}
+
+/** Sync pick — never await before speechSynthesis.speak (Chrome user-gesture). */
+export function pickFrenchVoiceSync(voiceURI = preferredFrenchVoiceURI) {
+  const voices = syncVoiceCache()
   const fr = voices.filter((v) => v.lang?.toLowerCase().startsWith('fr'))
   if (!fr.length) return null
 
@@ -96,49 +120,65 @@ export async function pickFrenchVoice(voiceURI = preferredFrenchVoiceURI) {
     if (match) return match
   }
 
-  const ranked = [...fr].sort(
-    (a, b) => scoreFrenchVoiceNaturalness(b) - scoreFrenchVoiceNaturalness(a),
+  return (
+    [...fr].sort((a, b) => scoreFrenchVoiceNaturalness(b) - scoreFrenchVoiceNaturalness(a))[0] ||
+    null
   )
-  return ranked[0] || null
 }
 
-/**
- * Speak French text. Optional onBoundary(charIndex) for guided highlighting.
- * Pass `voiceURI` to force a French speaker (accent match).
- * Resolves with `{ status: 'ended' | 'interrupted' }` so callers can resume.
- */
-export async function speakFrench(
-  text,
-  { rate = 0.7, onBoundary, voiceURI = preferredFrenchVoiceURI } = {},
-) {
-  if (!text || typeof window === 'undefined' || !window.speechSynthesis) {
-    throw new Error('Synthèse vocale indisponible dans ce navigateur')
+export async function pickFrenchVoice(voiceURI = preferredFrenchVoiceURI) {
+  await loadVoices()
+  return pickFrenchVoiceSync(voiceURI)
+}
+
+/** Chrome often stops long utterances — keep chunks short. */
+export function splitTextForSpeech(text, maxLen = 180) {
+  const raw = String(text ?? '').trim()
+  if (!raw) return []
+  if (raw.length <= maxLen) return [raw]
+
+  const sentences = raw.split(/(?<=[.!?…])\s+/).filter(Boolean)
+  const parts = []
+  let buf = ''
+  for (const sentence of sentences.length ? sentences : [raw]) {
+    if (!buf) {
+      buf = sentence
+      continue
+    }
+    if (`${buf} ${sentence}`.length <= maxLen) {
+      buf = `${buf} ${sentence}`
+    } else {
+      parts.push(buf)
+      buf = sentence
+    }
   }
+  if (buf) parts.push(buf)
 
-  const generation = ++speakGeneration
-  window.speechSynthesis.cancel()
-  // Let the cancel settle (Chrome often fires "interrupted" otherwise)
-  await new Promise((r) => window.setTimeout(r, 80))
-  if (generation !== speakGeneration) return { status: 'interrupted' }
-
-  // Chrome can leave the synth paused after cancel
-  try {
-    window.speechSynthesis.resume()
-  } catch {
-    // ignore
+  // Hard-wrap any leftover long piece
+  const out = []
+  for (const part of parts) {
+    if (part.length <= maxLen) {
+      out.push(part)
+      continue
+    }
+    let i = 0
+    while (i < part.length) {
+      out.push(part.slice(i, i + maxLen))
+      i += maxLen
+    }
   }
+  return out
+}
 
-  const voice = await pickFrenchVoice(voiceURI)
-  if (generation !== speakGeneration) return { status: 'interrupted' }
-
+function speakOnce(text, { rate, onBoundary, voice }) {
   return new Promise((resolve, reject) => {
-    if (generation !== speakGeneration) {
-      resolve({ status: 'interrupted' })
+    const generation = speakGeneration
+    if (!text) {
+      resolve({ status: 'ended' })
       return
     }
 
     const utterance = new SpeechSynthesisUtterance(text)
-    // Force French language even if no fr voice is installed yet
     utterance.lang = voice?.lang?.toLowerCase().startsWith('fr') ? voice.lang : 'fr-FR'
     utterance.rate = rate
     if (voice) utterance.voice = voice
@@ -153,13 +193,11 @@ export async function speakFrench(
     }
 
     utterance.onend = () => {
-      if (generation === speakGeneration) resolve({ status: 'ended' })
-      else resolve({ status: 'interrupted' })
+      resolve({ status: generation === speakGeneration ? 'ended' : 'interrupted' })
     }
 
     utterance.onerror = (event) => {
       const reason = event?.error || ''
-      // Expected when we cancel to start a new utterance or stop the guide
       if (reason === 'interrupted' || reason === 'canceled' || reason === 'cancelled') {
         resolve({ status: 'interrupted' })
         return
@@ -173,15 +211,70 @@ export async function speakFrench(
 
     window.speechSynthesis.speak(utterance)
 
-    // Some Chromium builds need a kick after speak()
+    // Chrome sometimes stays paused after cancel
     window.setTimeout(() => {
       try {
         if (window.speechSynthesis.paused) window.speechSynthesis.resume()
       } catch {
         // ignore
       }
-    }, 50)
+    }, 20)
   })
+}
+
+/**
+ * Speak French with a French accent voice when available.
+ * Speaks in short chunks (Chrome-safe) and keeps speak() close to the user click.
+ */
+export async function speakFrench(
+  text,
+  { rate = 0.7, onBoundary, voiceURI = preferredFrenchVoiceURI } = {},
+) {
+  if (!text || typeof window === 'undefined' || !window.speechSynthesis) {
+    throw new Error('Synthèse vocale indisponible dans ce navigateur')
+  }
+
+  const generation = ++speakGeneration
+  window.speechSynthesis.cancel()
+  // Short settle only — long awaits after click make Chrome mute speech
+  await new Promise((r) => window.setTimeout(r, 20))
+  if (generation !== speakGeneration) return { status: 'interrupted' }
+
+  try {
+    window.speechSynthesis.resume()
+  } catch {
+    // ignore
+  }
+
+  // Sync voice pick from cache (warmed on app load)
+  syncVoiceCache()
+  const voice = pickFrenchVoiceSync(voiceURI)
+  if (generation !== speakGeneration) return { status: 'interrupted' }
+
+  const parts = splitTextForSpeech(text)
+  let offset = 0
+
+  for (const part of parts) {
+    if (generation !== speakGeneration) return { status: 'interrupted' }
+    const chunkOffset = offset
+    const result = await speakOnce(part, {
+      rate,
+      voice,
+      onBoundary: (charIndex, charLength) => {
+        onBoundary?.(chunkOffset + charIndex, charLength)
+      },
+    })
+    if (result.status === 'interrupted' || generation !== speakGeneration) {
+      return { status: 'interrupted' }
+    }
+    // Keep original spacing when advancing offset through the full string
+    const next = text.indexOf(part, offset)
+    offset = next >= 0 ? next + part.length : offset + part.length
+    // Skip following whitespace so boundary mapping stays aligned
+    while (offset < text.length && /\s/.test(text[offset])) offset += 1
+  }
+
+  return { status: generation === speakGeneration ? 'ended' : 'interrupted' }
 }
 
 /** Char offset of the start of wordOrdinal in display tokens (includes breaks/spaces). */
@@ -290,7 +383,6 @@ export function startAdaptiveReadingGuide(
     source = audioCtx.createMediaStreamSource(stream)
     source.connect(analyser)
   } catch {
-    // Fall back to fixed pace if Web Audio unavailable
     return startReadingGuide(wordCount, { wpm, onWord, onDone })
   }
 
@@ -307,7 +399,6 @@ export function startAdaptiveReadingGuide(
     const rms = Math.sqrt(sum / data.length)
     const speaking = rms >= speechThreshold
 
-    // Only advance while voice is present (pauses don't burn the timer)
     if (speaking) {
       accrued += dt
       while (accrued >= msPerWord && index < wordCount - 1) {
@@ -321,7 +412,6 @@ export function startAdaptiveReadingGuide(
         return
       }
     } else {
-      // Soft decay so a short breath doesn't jump ahead after silence
       accrued = Math.max(0, accrued - dt * 0.35)
     }
 
@@ -341,7 +431,6 @@ export function startAdaptiveReadingGuide(
 
   lastTs = performance.now()
   raf = window.requestAnimationFrame(tick)
-  // Avoid unused silenceMs lint — keep as documented knobs for future tuning
   void silenceMs
 
   return cleanup
