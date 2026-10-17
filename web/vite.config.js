@@ -50,6 +50,13 @@ export default defineConfig({
         timeout: 180_000,
         proxyTimeout: 180_000,
       },
+      // Piper WAV for Opera/Chrome when speechSynthesis is silent
+      '/tts': {
+        target: pronounceUrl,
+        changeOrigin: true,
+        timeout: 180_000,
+        proxyTimeout: 180_000,
+      },
       '/pronounce-health': {
         target: pronounceUrl,
         changeOrigin: true,

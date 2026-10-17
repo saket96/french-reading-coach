@@ -17,7 +17,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("pronounce")
@@ -340,3 +340,30 @@ async def phonemes(text: str = Form(...), lang: str = Form("fr")):
         return {"phonemes": phones, "text": text, "lang": lang}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/tts")
+async def tts(text: str = Form(...), lang: str = Form("fr")):
+    """Synthesize French speech with Piper (offline) → WAV for browser playback.
+
+    Used by Écouter in Opera (and as Chrome fallback) when speechSynthesis is silent.
+    """
+    spoken = _truncate_expected(text, max_chars=500)
+    if not spoken:
+        raise HTTPException(status_code=400, detail="text vide")
+
+    try:
+        from openpronounce import text2speech
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"TTS indisponible: {exc}") from exc
+
+    try:
+        ref_path = text2speech(spoken, lang=(lang or "fr").strip() or "fr")
+        data = Path(ref_path).read_bytes()
+        if not data:
+            raise RuntimeError("fichier TTS vide")
+        log.info("POST /tts chars=%s bytes=%s", len(spoken), len(data))
+        return Response(content=data, media_type="audio/wav")
+    except Exception as exc:
+        log.error("tts failed: %s\n%s", exc, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"TTS échoué: {exc}") from exc

@@ -200,12 +200,47 @@ function isBlinkSpeechEngine() {
   return /Chrome\//i.test(ua) && /Safari\//i.test(ua)
 }
 
+/** Desktop Opera — speechSynthesis is often silent; use Piper /tts instead. */
+export function prefersServerTts() {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  return /OPR\/|Opera\//i.test(ua) && !/iPhone|iPad|iPod/i.test(ua)
+}
+
 let resumeKeepaliveId = 0
+/** Active HTMLAudioElement from server TTS (Opera path). */
+let activeServerAudio = null
+let activeServerGuideId = 0
 
 function stopResumeKeepalive() {
   if (resumeKeepaliveId) {
     window.clearInterval(resumeKeepaliveId)
     resumeKeepaliveId = 0
+  }
+}
+
+function stopServerAudio() {
+  if (activeServerGuideId) {
+    window.clearInterval(activeServerGuideId)
+    activeServerGuideId = 0
+  }
+  if (activeServerAudio) {
+    try {
+      activeServerAudio.pause()
+      activeServerAudio.removeAttribute('src')
+      activeServerAudio.load()
+    } catch {
+      // ignore
+    }
+    const src = activeServerAudio.dataset?.blobUrl
+    if (src) {
+      try {
+        URL.revokeObjectURL(src)
+      } catch {
+        // ignore
+      }
+    }
+    activeServerAudio = null
   }
 }
 
@@ -233,6 +268,177 @@ function unlockSpeechSynth(synth) {
   } catch {
     // ignore
   }
+}
+
+function wordStartsInText(text) {
+  const starts = []
+  const re = /\S+/g
+  let match
+  while ((match = re.exec(text))) {
+    starts.push({ index: match.index, length: match[0].length })
+  }
+  return starts
+}
+
+/**
+ * Play one Piper WAV from the pronounce service (works in Opera).
+ * Approximate word boundaries from duration for highlight sync.
+ */
+function speakOnceViaServer(text, { rate = 0.7, onBoundary } = {}) {
+  return new Promise((resolve, reject) => {
+    const generation = speakGeneration
+    if (!text) {
+      resolve({ status: 'ended' })
+      return
+    }
+
+    const form = new FormData()
+    form.append('text', text)
+    form.append('lang', 'fr')
+
+    fetch('/tts', { method: 'POST', body: form })
+      .then(async (response) => {
+        if (generation !== speakGeneration) {
+          resolve({ status: 'interrupted' })
+          return
+        }
+        if (!response.ok) {
+          const detail = await response.text().catch(() => '')
+          throw new Error(
+            detail?.slice(0, 180) ||
+              `Voix serveur indisponible (${response.status}). Vérifiez Prononciation prête.`,
+          )
+        }
+        return response.blob()
+      })
+      .then((blob) => {
+        if (!blob || generation !== speakGeneration) {
+          resolve({ status: 'interrupted' })
+          return
+        }
+        stopServerAudio()
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        audio.dataset.blobUrl = url
+        audio.playbackRate = Math.min(1.4, Math.max(0.55, Number(rate) || 0.7))
+        activeServerAudio = audio
+
+        const words = wordStartsInText(text)
+        let wordIdx = 0
+
+        const clearGuide = () => {
+          if (activeServerGuideId) {
+            window.clearInterval(activeServerGuideId)
+            activeServerGuideId = 0
+          }
+        }
+
+        const finish = (status) => {
+          clearGuide()
+          try {
+            URL.revokeObjectURL(url)
+          } catch {
+            // ignore
+          }
+          if (activeServerAudio === audio) activeServerAudio = null
+          resolve({ status })
+        }
+
+        audio.onended = () => {
+          finish(generation === speakGeneration ? 'ended' : 'interrupted')
+        }
+        audio.onerror = () => {
+          finish('interrupted')
+          reject(new Error('Lecture audio serveur impossible'))
+        }
+
+        const startGuide = () => {
+          clearGuide()
+          if (!words.length || typeof onBoundary !== 'function') return
+          const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0
+          const effective = duration > 0 ? duration / audio.playbackRate : words.length * 0.45
+          const stepMs = Math.max(180, (effective / words.length) * 1000)
+          onBoundary(words[0].index, words[0].length)
+          wordIdx = 1
+          activeServerGuideId = window.setInterval(() => {
+            if (generation !== speakGeneration) {
+              clearGuide()
+              try {
+                audio.pause()
+              } catch {
+                // ignore
+              }
+              finish('interrupted')
+              return
+            }
+            if (wordIdx >= words.length) {
+              clearGuide()
+              return
+            }
+            onBoundary(words[wordIdx].index, words[wordIdx].length)
+            wordIdx += 1
+          }, stepMs)
+        }
+
+        audio.onloadedmetadata = startGuide
+        // Some browsers fire play before metadata — still start guide after play.
+        const playPromise = audio.play()
+        if (playPromise?.then) {
+          playPromise
+            .then(() => {
+              if (!activeServerGuideId) startGuide()
+            })
+            .catch((err) => {
+              finish('interrupted')
+              reject(
+                new Error(
+                  err?.message ||
+                    'Lecture bloquée. Cliquez Écouter une fois (geste utilisateur requis).',
+                ),
+              )
+            })
+        }
+      })
+      .catch((err) => {
+        if (generation !== speakGeneration) {
+          resolve({ status: 'interrupted' })
+          return
+        }
+        reject(err instanceof Error ? err : new Error(String(err)))
+      })
+  })
+}
+
+async function speakFrenchViaServer(text, { rate = 0.7, onBoundary } = {}) {
+  const generation = ++speakGeneration
+  stopServerAudio()
+  try {
+    window.speechSynthesis?.cancel()
+  } catch {
+    // ignore
+  }
+
+  const parts = splitTextForSpeech(text, 280)
+  if (!parts.length) return { status: 'ended' }
+
+  let offset = 0
+  for (const part of parts) {
+    if (generation !== speakGeneration) return { status: 'interrupted' }
+    const chunkOffset = offset
+    const result = await speakOnceViaServer(part, {
+      rate,
+      onBoundary: (charIndex, charLength) => {
+        onBoundary?.(chunkOffset + charIndex, charLength)
+      },
+    })
+    if (result.status === 'interrupted' || generation !== speakGeneration) {
+      return { status: 'interrupted' }
+    }
+    const next = text.indexOf(part, offset)
+    offset = next >= 0 ? next + part.length : offset + part.length
+    while (offset < text.length && /\s/.test(text[offset])) offset += 1
+  }
+  return { status: generation === speakGeneration ? 'ended' : 'interrupted' }
 }
 
 /**
@@ -309,16 +515,27 @@ function speakOnce(text, { rate, onBoundary, voice, assignVoice = true }) {
 }
 
 /**
- * Speak French. First utterance is started synchronously (no await before
- * speak) so Opera/Chrome keep the click's user-activation. Safari already
- * worked; Blink was going mute after cancel+delay.
+ * Speak French.
+ * - Safari: system speechSynthesis (works well).
+ * - Opera: Piper server TTS (/tts) — speechSynthesis is often silent there.
+ * - Chrome: speechSynthesis first; falls back to server if needed.
  */
 export async function speakFrench(
   text,
-  { rate = 0.7, onBoundary, voiceURI = preferredFrenchVoiceURI } = {},
+  { rate = 0.7, onBoundary, voiceURI = preferredFrenchVoiceURI, forceServer } = {},
 ) {
-  if (!text || typeof window === 'undefined' || !window.speechSynthesis) {
+  if (!text || typeof window === 'undefined') {
     throw new Error('Synthèse vocale indisponible dans ce navigateur')
+  }
+
+  const useServer = forceServer === true || (forceServer !== false && prefersServerTts())
+  if (useServer) {
+    return speakFrenchViaServer(text, { rate, onBoundary })
+  }
+
+  if (!window.speechSynthesis) {
+    // No browser TTS — try Piper
+    return speakFrenchViaServer(text, { rate, onBoundary })
   }
 
   const synth = window.speechSynthesis
@@ -368,7 +585,7 @@ export async function speakFrench(
         result = await runChunk(part, chunkOffset, !preferLangOnly)
       } catch (err) {
         const msg = String(err?.message || err || '')
-        // Retry once without .voice — common silent failure on Opera/Chrome + Mac voices
+        // Retry once without .voice — common silent failure on Chrome + Mac voices
         if (
           !preferLangOnly &&
           i === 0 &&
@@ -383,6 +600,10 @@ export async function speakFrench(
           }
           unlockSpeechSynth(synth)
           result = await runChunk(part, chunkOffset, false)
+        } else if (i === 0 && generation === speakGeneration) {
+          // Last resort: Piper server audio (same path as Opera)
+          stopResumeKeepalive()
+          return speakFrenchViaServer(text, { rate, onBoundary })
         } else {
           throw err
         }
@@ -420,6 +641,7 @@ export function charIndexAtWord(displayTokens, wordOrdinal) {
 export function stopSpeaking() {
   speakGeneration += 1
   stopResumeKeepalive()
+  stopServerAudio()
   if (typeof window !== 'undefined' && window.speechSynthesis) {
     try {
       window.speechSynthesis.cancel()

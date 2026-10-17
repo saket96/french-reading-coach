@@ -1700,17 +1700,10 @@ export default function App() {
             <Volume2 className="h-3.5 w-3.5" />
             Tester la voix
           </Button>
-          {!frenchVoices.length ? (
-            <p className="text-[0.65rem] leading-snug text-wrong">
-              Aucune voix FR détectée. Mac : Réglages → Accessibilité → Contenu lu à voix haute →
-              téléchargez Amélie ou Thomas (Enhanced). Opera : préférez une voix « local » / Enhanced.
-            </p>
-          ) : (
-            <p className="text-[0.65rem] leading-snug text-muted-foreground">
-              Prefer Amélie/Thomas Enhanced (local). Safari et Opera peuvent lister des voix
-              différentes — recliquez Tester la voix après un changement.
-            </p>
-          )}
+          <p className="text-[0.65rem] leading-snug text-muted-foreground">
+            Safari : voix système (Amélie/Thomas). <strong>Opera</strong> : Écouter utilise la voix
+            Piper du serveur (voyant Prononciation vert requis) — speechSynthesis y est souvent muet.
+          </p>
         </div>
 
         <div>
