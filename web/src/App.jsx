@@ -24,9 +24,15 @@ import { CUSTOM_PASSAGE_ID, customPassage, loadCustomText, saveCustomText } from
 import { analyzeLiaisons, analyzeTerminations } from './lib/liaison.js'
 import {
   assessFrenchPronunciation,
+  checkPronounceReady,
   extractPronunciationTips,
   PronounceUnavailableError,
 } from './lib/pronounce.js'
+import {
+  MIN_AUDIO_BLOB_BYTES,
+  pickRecorderMimeType,
+  stopRecorderToBlob,
+} from './lib/recordAudio.js'
 import { buildFocusReview } from './lib/review.js'
 import { countGuidedWords } from './lib/guided.js'
 import {
@@ -119,11 +125,6 @@ function loadVoiceURI() {
   } catch {
     return ''
   }
-}
-
-const pickMimeType = () => {
-  const candidates = ['audio/webm;codecs=opus', 'audio/webm']
-  return candidates.find((type) => window.MediaRecorder?.isTypeSupported(type)) ?? ''
 }
 
 function scoreLabel(score) {
@@ -239,6 +240,7 @@ export default function App() {
   const [frenchVoices, setFrenchVoices] = useState([])
   const [whisperModel, setWhisperModel] = useState(() => loadModel())
   const [whisperReady, setWhisperReady] = useState('checking') // checking | ready | down
+  const [pronounceReady, setPronounceReady] = useState('checking') // checking | ready | down
   const [shadowMode, setShadowMode] = useState(() => loadShadow())
   const [shadowHeard, setShadowHeard] = useState(false)
 
@@ -415,6 +417,26 @@ export default function App() {
     setWhisperReady('checking')
   }
 
+  const refreshWhisperStatus = async () => {
+    setWhisperReady('checking')
+    const result = await checkWhisperReady(whisperModel)
+    setWhisperReady(result.ready ? 'ready' : 'down')
+  }
+
+  /** Clear stuck pronounce UI + re-ping OpenPronounce (helps Opera flaky sessions). */
+  const resetPronounceStatus = async () => {
+    setPronounceTips(null)
+    setPronounceNote('')
+    setPronounceReady('checking')
+    const result = await checkPronounceReady()
+    setPronounceReady(result.ready ? 'ready' : 'down')
+    if (!result.ready) {
+      setPronounceNote(
+        'Prononciation indisponible. Lancez `docker compose up -d --build pronounce`, attendez le voyant vert, puis réenregistrez.',
+      )
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
     const ping = async () => {
@@ -428,6 +450,20 @@ export default function App() {
       window.clearInterval(id)
     }
   }, [whisperModel])
+
+  useEffect(() => {
+    let cancelled = false
+    const ping = async () => {
+      const result = await checkPronounceReady()
+      if (!cancelled) setPronounceReady(result.ready ? 'ready' : 'down')
+    }
+    ping()
+    const id = window.setInterval(ping, 10000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [])
 
   /** Clear guide UI/session without cancelling TTS (speakFrench handles replace). */
   const clearGuideSession = () => {
@@ -669,73 +705,98 @@ export default function App() {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          channelCount: 1,
+        },
+      })
       streamRef.current = stream
-      const mimeType = pickMimeType()
+      const mimeType = pickRecorderMimeType()
       const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
+        ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128000 })
         : new MediaRecorder(stream)
       mediaRecorderRef.current = recorder
       chunksRef.current = []
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data)
+        if (event.data?.size > 0) chunksRef.current.push(event.data)
       }
-      recorder.onstop = async () => {
-        stopTimer()
-        stopGuide()
-        stream.getTracks().forEach((track) => track.stop())
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-        clearAttemptAudio()
-        setAudioUrl(URL.createObjectURL(blob))
-        setPhase('transcribing')
-        try {
-          const result = await transcribeFrenchAudio(blob, { model: whisperModel })
-          if (!result.text) {
-            setError('Whisper n’a renvoyé aucun texte. Réessayez en parlant plus près du micro.')
-            setPhase('error')
-            return
-          }
-          setTranscript(result.text)
-          setTimedWords(result.words ?? [])
-          setPhase('done')
-
-          try {
-            const raw = await assessFrenchPronunciation(blob, currentChunk)
-            setPronounceTips(extractPronunciationTips(raw))
-            setPronounceNote('')
-          } catch (err) {
-            setPronounceTips(null)
-            setPronounceNote(
-              err instanceof PronounceUnavailableError
-                ? err.message
-                : 'Évaluation phonétique indisponible pour ce tour.',
-            )
-          }
-        } catch (err) {
-          setError(
-            err instanceof WhisperUnavailableError
-              ? err.message
-              : 'La transcription a échoué. Vérifiez Docker puis réessayez.',
-          )
-          setPhase('error')
-        }
-      }
-      recorder.start()
+      // Timeslice keeps Opera/Chrome from delivering one truncated WebM on stop.
+      recorder.start(1000)
       startTimer()
       setPhase('recording')
       // Record at your own pace — feedback comes after Stop
       stopGuide()
     } catch {
       setError(
-        'Micro refusé ou indisponible. Autorisez le micro dans Chrome ou Edge, ou utilisez la démo sans micro.',
+        'Micro refusé ou indisponible. Autorisez le micro (Opera/Chrome/Edge), ou utilisez la démo sans micro.',
       )
       setPhase('idle')
     }
   }
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
     const recorder = mediaRecorderRef.current
-    if (recorder && recorder.state === 'recording') recorder.stop()
+    const stream = streamRef.current
+    if (!recorder || (recorder.state !== 'recording' && recorder.state !== 'paused')) return
+
+    stopTimer()
+    stopGuide()
+    setPhase('transcribing')
+
+    try {
+      const blob = await stopRecorderToBlob(recorder, chunksRef.current)
+      stream?.getTracks().forEach((track) => track.stop())
+      mediaRecorderRef.current = null
+
+      if (!blob || blob.size < MIN_AUDIO_BLOB_BYTES) {
+        setError(
+          'Enregistrement trop court ou incomplet (souvent sous Opera). Gardez Stop 1–2 s après avoir parlé, puis réessayez.',
+        )
+        setPhase('error')
+        return
+      }
+
+      clearAttemptAudio()
+      setAudioUrl(URL.createObjectURL(blob))
+
+      try {
+        const result = await transcribeFrenchAudio(blob, { model: whisperModel })
+        if (!result.text) {
+          setError('Whisper n’a renvoyé aucun texte. Réessayez en parlant plus près du micro.')
+          setPhase('error')
+          return
+        }
+        setTranscript(result.text)
+        setTimedWords(result.words ?? [])
+        setPhase('done')
+
+        try {
+          const raw = await assessFrenchPronunciation(blob, currentChunk)
+          setPronounceTips(extractPronunciationTips(raw))
+          setPronounceNote('')
+        } catch (err) {
+          setPronounceTips(null)
+          setPronounceNote(
+            err instanceof PronounceUnavailableError
+              ? err.message
+              : 'Évaluation phonétique indisponible pour ce tour. Réessayez — sous Opera le premier essai échoue parfois.',
+          )
+        }
+      } catch (err) {
+        setError(
+          err instanceof WhisperUnavailableError
+            ? err.message
+            : 'La transcription a échoué. Vérifiez Docker puis réessayez.',
+        )
+        setPhase('error')
+      }
+    } catch {
+      stream?.getTracks().forEach((track) => track.stop())
+      setError('Impossible de finaliser l’enregistrement. Réessayez sous Opera, ou utilisez Chrome.')
+      setPhase('error')
+    }
   }
 
   const runFixture = () => {
@@ -1009,9 +1070,50 @@ export default function App() {
         >
           Small
         </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => refreshWhisperStatus()}
+          title="Revérifier Whisper"
+          disabled={phase === 'recording' || phase === 'transcribing'}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Reset
+        </Button>
+        <span className="text-border">|</span>
+        <span className="inline-flex items-center gap-2">
+          <span
+            className={
+              'inline-block h-2.5 w-2.5 rounded-full ' +
+              (pronounceReady === 'ready'
+                ? 'bg-emerald-500'
+                : pronounceReady === 'checking'
+                  ? 'bg-amber-400 animate-pulse'
+                  : 'bg-red-500')
+            }
+            title="État OpenPronounce (conseils phonétiques)"
+          />
+          Prononciation{' '}
+          {pronounceReady === 'ready' ? 'prête' : pronounceReady === 'checking' ? '…' : 'down'}
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => resetPronounceStatus()}
+          title="Effacer le dernier score et revérifier OpenPronounce"
+          disabled={phase === 'recording' || phase === 'transcribing'}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Reset
+        </Button>
         {whisperModel === 'small' && whisperReady === 'down' ? (
           <span className="text-xs text-wrong">
             Lancez : <code>docker compose --profile small up -d</code>
+          </span>
+        ) : null}
+        {pronounceReady === 'down' ? (
+          <span className="text-xs text-wrong">
+            Lancez : <code>docker compose up -d --build pronounce</code> (1er démarrage long)
           </span>
         ) : null}
       </div>

@@ -1,3 +1,5 @@
+import { audioFilenameForBlob } from './recordAudio.js'
+
 export class PronounceUnavailableError extends Error {
   constructor(message) {
     super(message)
@@ -47,43 +49,86 @@ async function readErrorDetail(response) {
   return ''
 }
 
-/**
- * Local OpenPronounce phoneme scoring (French).
- * Returns null fields gracefully when the service is down — Whisper alignment still works.
- */
-export async function assessFrenchPronunciation(blob, expectedText) {
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+async function postPronunciation(blob, expectedText) {
   const form = new FormData()
-  form.append('file', blob, 'reading.webm')
+  form.append('file', blob, audioFilenameForBlob(blob, 'reading'))
   form.append('expected_text', expectedText)
   form.append('lang', 'fr')
 
-  let response
+  const controller = new AbortController()
+  // First FR model download / heavy CPU can take a while
+  const timer = window.setTimeout(() => controller.abort(), 180_000)
   try {
-    response = await fetch('/pronunciation', {
+    return await fetch('/pronunciation', {
       method: 'POST',
       body: form,
+      signal: controller.signal,
     })
-  } catch {
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+/**
+ * Local OpenPronounce phoneme scoring (French).
+ * Retries once on transient 5xx / network blips (common on Opera + cold model).
+ */
+export async function assessFrenchPronunciation(blob, expectedText) {
+  if (!blob || blob.size < 100) {
     throw new PronounceUnavailableError(
-      'OpenPronounce n’est pas joignable. Sur votre Mac : `docker compose up -d --build pronounce` puis attendez le démarrage (port 8000).',
+      'Audio trop court pour la prononciation. Enregistrez un peu plus longtemps puis réessayez.',
     )
   }
 
-  if (!response.ok) {
+  let lastError = null
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    let response
+    try {
+      response = await postPronunciation(blob, expectedText)
+    } catch (err) {
+      lastError = err
+      if (attempt < 2) {
+        await sleep(700)
+        continue
+      }
+      if (err?.name === 'AbortError') {
+        throw new PronounceUnavailableError(
+          'OpenPronounce a mis trop longtemps (modèle FR en cours de chargement ?). Attendez le voyant Prononciation vert, cliquez Reset, puis réenregistrez.',
+        )
+      }
+      throw new PronounceUnavailableError(
+        'OpenPronounce n’est pas joignable. Sur votre Mac : `docker compose up -d --build pronounce` puis attendez le démarrage (port 8000).',
+      )
+    }
+
+    if (response.ok) return response.json()
+
     const detail = await readErrorDetail(response)
+    const retryable = response.status === 502 || response.status === 503 || response.status === 504 || response.status === 500
+    if (retryable && attempt < 2) {
+      await sleep(900)
+      continue
+    }
+
     if (response.status === 502 || response.status === 503 || response.status === 504) {
       throw new PronounceUnavailableError(
-        'OpenPronounce charge encore le modèle FR (~1.2 Go au premier essai). Attendez 1–3 min puis réessayez. `docker compose logs -f pronounce`',
+        'OpenPronounce charge encore le modèle FR (~1.2 Go au premier essai). Attendez le voyant Prononciation vert (ou Reset), puis réessayez. `docker compose logs -f pronounce`',
       )
     }
     throw new PronounceUnavailableError(
       detail
         ? `OpenPronounce (${response.status}) : ${detail}`
-        : `OpenPronounce a renvoyé une erreur (${response.status}). Vérifiez : docker compose logs --tail=80 pronounce`,
+        : `OpenPronounce a renvoyé une erreur (${response.status}). Cliquez Reset Prononciation, puis réessayez.`,
     )
   }
 
-  return response.json()
+  throw lastError instanceof PronounceUnavailableError
+    ? lastError
+    : new PronounceUnavailableError('Évaluation phonétique indisponible pour ce tour.')
 }
 
 /** Normalize OpenPronounce payload into UI-friendly word tips. */

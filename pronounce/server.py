@@ -89,23 +89,42 @@ async def pronunciation(
             detail=f"OpenPronounce non importable: {exc}",
         ) from exc
 
-    suffix = Path(file.filename or "audio.webm").suffix or ".webm"
+    filename = file.filename or "audio.webm"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".webm", ".ogg", ".wav", ".mp3", ".m4a", ".mp4", ".opus"}:
+        # Opera sometimes sends octet-stream / odd names — assume WebM/Opus
+        suffix = ".webm"
     raw = await file.read()
-    if not raw:
-        raise HTTPException(status_code=400, detail="fichier audio vide")
+    if not raw or len(raw) < 200:
+        raise HTTPException(
+            status_code=400,
+            detail="fichier audio vide ou trop court (réessayez l’enregistrement, surtout sous Opera)",
+        )
 
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             src = Path(tmpdir) / f"input{suffix}"
             wav = Path(tmpdir) / "input.wav"
             src.write_bytes(raw)
+            convert_error = None
             try:
                 _ffmpeg_to_wav(src, wav)
                 sound = load_audio(str(wav))
-            except Exception:
+            except Exception as convert_exc:
+                convert_error = convert_exc
                 # Fall back to original bytes if ffmpeg conversion fails
-                log.warning("ffmpeg convert failed; trying original upload", exc_info=True)
-                sound = load_audio(str(src))
+                log.warning(
+                    "ffmpeg convert failed (%s); trying original upload",
+                    convert_exc,
+                    exc_info=True,
+                )
+                try:
+                    sound = load_audio(str(src))
+                except Exception as load_exc:
+                    raise RuntimeError(
+                        "Audio illisible (WebM Opera incomplet ?). "
+                        f"ffmpeg: {convert_error}; load: {load_exc}"
+                    ) from load_exc
 
             result = compare_audio_with_text(sound, expected_text, lang=lang or "fr")
         _ready["openpronounce"] = True
@@ -119,7 +138,7 @@ async def pronunciation(
             detail=(
                 "Échec OpenPronounce (FR expérimental). "
                 "Au premier essai le modèle FR (~1.2 Go) se télécharge — "
-                "attendez et réessayez. Détail: "
+                "attendez le voyant Prononciation, cliquez Reset, puis réessayez. Détail: "
                 f"{exc}"
             ),
         ) from exc
