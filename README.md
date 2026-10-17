@@ -24,6 +24,7 @@ Record yourself reading French (or **shadow** one sentence), get French-aware wo
 - **French-aware scoring** — exact / presque / wrong (fewer false alarms)
 - **Clic mot** — optional tap-to-speak + translate bar
 - **Révision** — Leitner-style deck from saved vocabulary
+- **Mes travaux** — simple local database (IndexedDB): save texts, rename titles, reopen later
 - **Custom text** — paste your own French passage
 - **OpenPronounce** — optional phoneme-level tips (experimental for French)
 

@@ -3,6 +3,7 @@ import {
   BookOpen,
   ChevronRight,
   CircleStop,
+  Database,
   Languages,
   Layers,
   Mic,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react'
 import { Button } from './components/ui/button.jsx'
 import { VocabDeck } from './components/VocabDeck.jsx'
+import { WorksPanel } from './components/WorksPanel.jsx'
 import { FIXTURE_CHUNK_INDEX, FIXTURE_PASSAGE_ID, FIXTURE_TRANSCRIPT } from './fixtures.js'
 import { alignWords, practiceErrors } from './lib/align.js'
 import { findTimingForHyp, playAudioRange } from './lib/audioClip.js'
@@ -211,6 +213,9 @@ export default function App() {
   const [lookupError, setLookupError] = useState('')
   const [showVocab, setShowVocab] = useState(false)
   const [showDeck, setShowDeck] = useState(false)
+  const [showWorks, setShowWorks] = useState(false)
+  const [activeWorkId, setActiveWorkId] = useState('')
+  const [activeWorkTitle, setActiveWorkTitle] = useState('')
   const [guideWordIndex, setGuideWordIndex] = useState(-1)
   const [guideMode, setGuideMode] = useState('') // 'listen' | 'listen-all' | 'read' | ''
   const [clickLearn, setClickLearn] = useState(() => loadClickLearn())
@@ -401,6 +406,37 @@ export default function App() {
     setChunkIndex(0)
     resetAttempt()
     setError('')
+  }
+
+  const openWorksPanel = () => {
+    setShowWorks(true)
+    setShowVocab(false)
+    setShowDeck(false)
+  }
+
+  const loadSavedWork = (work) => {
+    if (!work?.text) return
+    const text = String(work.text).trim()
+    saveCustomText(text)
+    setCustomDraft(text)
+    setCustomText(text)
+    setSourceMode('custom')
+    setActiveWorkId(work.id || '')
+    setActiveWorkTitle(work.title || '')
+    setChunkIndex(0)
+    resetAttempt()
+    setError('')
+    setShowWorks(false)
+  }
+
+  const onWorkSaved = (record) => {
+    if (!record) {
+      setActiveWorkId('')
+      setActiveWorkTitle('')
+      return
+    }
+    setActiveWorkId(record.id)
+    setActiveWorkTitle(record.title)
   }
 
   const onPassageChange = (nextId) => {
@@ -858,10 +894,19 @@ export default function App() {
             Ombre {shadowMode ? 'ON' : 'OFF'}
           </Button>
           <Button
+            variant={showWorks ? 'default' : 'outline'}
+            onClick={openWorksPanel}
+            title="Base locale : sauver / renommer / rouvrir vos textes"
+          >
+            <Database className="h-4 w-4" />
+            Mes travaux
+          </Button>
+          <Button
             variant="outline"
             onClick={() => {
               setShowDeck(true)
               setShowVocab(false)
+              setShowWorks(false)
             }}
           >
             <Layers className="h-4 w-4" />
@@ -872,6 +917,7 @@ export default function App() {
             onClick={() => {
               setShowVocab((v) => !v)
               setShowDeck(false)
+              setShowWorks(false)
             }}
           >
             <BookOpen className="h-4 w-4" />
@@ -1054,6 +1100,10 @@ export default function App() {
           />
           <div className="flex flex-wrap gap-2">
             <Button onClick={applyCustomText}>Utiliser ce texte</Button>
+            <Button variant="outline" onClick={openWorksPanel}>
+              <Database className="h-4 w-4" />
+              Sauver dans Mes travaux
+            </Button>
             <Button
               variant="outline"
               onClick={listenFullPassage}
@@ -1063,8 +1113,28 @@ export default function App() {
               Écouter tout
             </Button>
           </div>
+          {activeWorkTitle ? (
+            <p className="text-xs text-muted-foreground">
+              Travail ouvert : <span className="text-foreground font-medium">{activeWorkTitle}</span>
+            </p>
+          ) : null}
         </div>
       )}
+
+      {showWorks ? (
+        <WorksPanel
+          currentText={
+            sourceMode === 'custom'
+              ? customDraft || customText
+              : activePassage?.text || ''
+          }
+          currentVocab={vocab}
+          activeWorkId={activeWorkId}
+          onLoadWork={loadSavedWork}
+          onSaved={onWorkSaved}
+          onClose={() => setShowWorks(false)}
+        />
+      ) : null}
 
       {showDeck ? (
         <VocabDeck
