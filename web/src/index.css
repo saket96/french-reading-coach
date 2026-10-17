@@ -140,3 +140,118 @@ body {
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* Left-side help (?) — opposite the practice dock */
+.help-fab {
+  position: fixed;
+  z-index: 45;
+  left: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-card) 94%, transparent);
+  color: var(--color-foreground);
+  box-shadow: 0 8px 24px rgb(31 42 36 / 12%);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.help-fab:hover {
+  background: var(--color-secondary);
+}
+
+.help-fab:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 899px) {
+  .help-fab {
+    top: auto;
+    bottom: calc(min(48vh, 22rem) + 1rem);
+    transform: none;
+  }
+}
+
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgb(31 42 36 / 35%);
+  display: flex;
+  justify-content: flex-start;
+}
+
+.help-panel {
+  width: min(26rem, 100vw);
+  height: 100%;
+  overflow-y: auto;
+  background: var(--color-card);
+  border-right: 1px solid var(--color-border);
+  box-shadow: 8px 0 32px rgb(31 42 36 / 18%);
+  padding: 1.25rem 1.25rem 2rem;
+  animation: help-slide-in 0.2s ease-out;
+}
+
+@keyframes help-slide-in {
+  from {
+    transform: translateX(-12px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.help-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.help-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.help-panel__section h3 {
+  margin: 0 0 0.4rem;
+  font-family: var(--font-serif);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.help-panel__section ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.help-panel__section li::marker {
+  color: var(--color-ring);
+}
+
+@media (min-width: 900px) {
+  .app-shell {
+    padding-left: 3.75rem;
+  }
+}

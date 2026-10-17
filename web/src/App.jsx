@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BookOpen,
   ChevronRight,
+  CircleHelp,
   CircleStop,
   Database,
   Languages,
@@ -16,6 +17,7 @@ import {
   Volume2,
 } from 'lucide-react'
 import { Button } from './components/ui/button.jsx'
+import { HelpPanel } from './components/HelpPanel.jsx'
 import { VocabDeck } from './components/VocabDeck.jsx'
 import { WorksPanel } from './components/WorksPanel.jsx'
 import { FIXTURE_CHUNK_INDEX, FIXTURE_PASSAGE_ID, FIXTURE_TRANSCRIPT } from './fixtures.js'
@@ -233,6 +235,7 @@ export default function App() {
   const [showVocab, setShowVocab] = useState(false)
   const [showDeck, setShowDeck] = useState(false)
   const [showWorks, setShowWorks] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
   const [activeWorkId, setActiveWorkId] = useState('')
   const [activeWorkTitle, setActiveWorkTitle] = useState('')
   const [guideWordIndex, setGuideWordIndex] = useState(-1)
@@ -1152,13 +1155,25 @@ export default function App() {
 
   return (
     <div className="app-shell mx-auto min-h-screen max-w-[90rem] px-4 py-8 sm:px-6 lg:px-8">
+      <button
+        type="button"
+        className="help-fab"
+        onClick={() => setShowHelp(true)}
+        aria-label="Aide — comment utiliser"
+        title="Aide — comment utiliser"
+      >
+        <CircleHelp className="h-5 w-5" aria-hidden="true" />
+      </button>
+      <HelpPanel open={showHelp} onClose={() => setShowHelp(false)} />
+
       <header className="mb-6">
         <p className="text-xs font-semibold tracking-[0.2em] text-ring uppercase">
           Lecture guidée · vocabulaire · prononciation
         </p>
         <h1 className="mt-1 font-serif text-3xl sm:text-4xl">Coach de lecture française</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          Contrôles flottants à droite (ou en bas sur mobile) : Clic, Ombre, travaux, écoute et
+          Bouton <strong>?</strong> à gauche pour l’aide. Dock à droite : activez{' '}
+          <strong>Clic ON</strong> pour entendre et traduire, puis Ombre, travaux, écoute et
           enregistrement.
         </p>
       </header>
