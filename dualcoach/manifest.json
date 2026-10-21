@@ -1,0 +1,125 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_appName__",
+  "short_name": "__MSG_appShortName__",
+  "version": "0.3.5",
+  "description": "__MSG_appDescription__",
+  "default_locale": "en",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "tts"
+  ],
+  "host_permissions": [
+    "https://*.youtube.com/*",
+    "https://*.netflix.com/*",
+    "https://en.wiktionary.org/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "optional_host_permissions": [
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.anthropic.com/*",
+    "https://openrouter.ai/*",
+    "https://api.opensubtitles.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://*.netflix.com/*"
+      ],
+      "js": [
+        "src/content/parsers.js",
+        "src/page/hook.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "exclude_matches": [
+        "https://*.youtube.com/*",
+        "https://*.netflix.com/*",
+        "https://chrome.google.com/*",
+        "https://chromewebstore.google.com/*"
+      ],
+      "js": [
+        "src/content/parsers.js",
+        "src/page/hook.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://*.netflix.com/*"
+      ],
+      "js": [
+        "src/content/parsers.js",
+        "src/content/core.js",
+        "src/content/styles.js",
+        "src/content/card.js",
+        "src/content/overlay.js",
+        "src/content/youtube.js",
+        "src/content/netflix.js",
+        "src/content/app.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "exclude_matches": [
+        "https://*.youtube.com/*",
+        "https://*.netflix.com/*",
+        "https://chrome.google.com/*",
+        "https://chromewebstore.google.com/*"
+      ],
+      "js": [
+        "src/content/parsers.js",
+        "src/content/core.js",
+        "src/content/styles.js",
+        "src/content/card.js",
+        "src/content/overlay.js",
+        "src/content/generic.js",
+        "src/content/app.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "options_ui": {
+    "page": "src/options/options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "__MSG_appShortName__",
+    "default_popup": "src/action/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  }
+}

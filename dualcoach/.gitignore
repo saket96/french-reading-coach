@@ -1,0 +1,5 @@
+.DS_Store
+dist/
+tools/e2e/*.png
+_metadata/
+node_modules/

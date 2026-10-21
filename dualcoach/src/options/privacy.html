@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy policy</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-head">
+        <h1><span data-i18n="brand"></span> privacy policy</h1>
+        <p class="muted">Last updated: 2026-09-29</p>
+      </header>
+
+      <section class="card prose">
+        <p><span data-i18n="brand"></span> is a Chrome extension that shows two subtitle tracks on YouTube and Netflix and lets you look up words. This policy explains what data it handles.</p>
+
+        <h2>Summary</h2>
+        <ul>
+          <li>No account, no sign-in.</li>
+          <li>No analytics, no tracking, no ads.</li>
+          <li>No remote code: everything the extension runs ships inside the extension package.</li>
+          <li>Your settings and saved vocabulary are stored locally in Chrome (<code>chrome.storage</code>). Settings may sync between your own Chrome browsers if you use Chrome Sync; the developer never receives them.</li>
+        </ul>
+
+        <h2>What leaves your browser, and when</h2>
+        <ul>
+          <li><strong>Dictionary lookups.</strong> When you click a word, that word (and, when Wiktionary says it is a form of another word, that base word) is sent to Wiktionary, a Wikimedia project (<code>en.wiktionary.org</code>), to fetch its definition. <a href="https://foundation.wikimedia.org/wiki/Policy:Privacy_policy" target="_blank" rel="noreferrer noopener">Wikimedia's privacy policy</a> applies to those requests.</li>
+          <li><strong>AI explanations (optional, off by default).</strong> If you add your own API key for OpenRouter, Google Gemini, or Anthropic, the expression you selected and the subtitle sentence it appeared in are sent directly from your browser to the provider you chose, using your key. Nothing goes through a server run by the developer. The provider's privacy terms apply. Your API key is stored only in this browser (<code>chrome.storage.local</code>) and is sent only to that provider.</li>
+          <li><strong>Translation.</strong> Chrome's built-in translator runs on your device. Chrome may download a language model the first time you translate between two languages.</li>
+        </ul>
+
+        <h2>Subtitles</h2>
+        <p>Subtitle text is read from the YouTube or Netflix page only to display it. It is never uploaded or stored, except the lines you choose to save to your vocabulary list, which stay in your browser.</p>
+
+        <h2>Stored on your device</h2>
+        <ul>
+          <li>Settings (languages, display options, AI provider and model).</li>
+          <li>Your AI API key, if you add one.</li>
+          <li>Your vocabulary list: the word, its base form, language, meaning, the subtitle sentence and its translation, the video title, link and time, and when you saved it.</li>
+          <li>A cache of recent dictionary and AI results, so repeated lookups don't send new requests.</li>
+        </ul>
+        <p>You can delete your vocabulary and clear the cache from the extension's settings page. Removing the extension deletes all of its local data.</p>
+
+        <h2>Permissions</h2>
+        <ul>
+          <li><code>storage</code>, <code>unlimitedStorage</code>: keep settings, vocabulary and the lookup cache on your device.</li>
+          <li><code>tts</code>: read words aloud with Chrome's text-to-speech.</li>
+          <li>Access to web pages: show dual subtitles on YouTube, Netflix, and other sites that expose HTML5 video caption tracks.</li>
+          <li>Access to <code>en.wiktionary.org</code>: fetch definitions.</li>
+          <li>Optional access to <code>openrouter.ai</code>, <code>generativelanguage.googleapis.com</code>, or <code>api.anthropic.com</code>: requested only when you save or test an API key for that provider.</li>
+          <li>Optional access to <code>api.opensubtitles.com</code>: requested only when you save or test an OpenSubtitles API key; used to search and download subtitles by title.</li>
+        </ul>
+
+        <h2>Contact</h2>
+        <p>Questions: <a href="https://saketsuman.com/contact/">saketsuman.com/contact</a></p>
+      </section>
+    </main>
+    <script src="privacy.js"></script>
+  </body>
+</html>

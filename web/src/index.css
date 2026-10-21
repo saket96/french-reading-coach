@@ -1,0 +1,257 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Source Sans 3', 'Segoe UI', sans-serif;
+  --font-serif: 'Source Serif 4', Georgia, serif;
+  --color-background: #f6f1e7;
+  --color-foreground: #1f2a24;
+  --color-card: #fffaf2;
+  --color-muted: #ebe3d4;
+  --color-muted-foreground: #5c675f;
+  --color-border: #d9cfc0;
+  --color-secondary: #e7efe8;
+  --color-secondary-foreground: #1f2a24;
+  --color-ring: #2f6f5e;
+  --color-match: #1f7a4d;
+  --color-wrong: #b42318;
+  --color-extra: #6b7280;
+  --color-destructive: #b42318;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+}
+
+.passage-text {
+  font-family: var(--font-serif);
+  font-size: clamp(1.15rem, 1.6vw, 1.45rem);
+  line-height: 1.75;
+  /* Keep pasted line breaks / paragraphs instead of composing into one block */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.passage-text [data-guide-word] {
+  /* Leave room above/below so auto-scroll doesn’t hide the word under the dock */
+  scroll-margin-block: 28vh;
+}
+
+.guide-word-active {
+  background: #c8e6d8;
+  color: #1f2a24;
+  box-shadow: inset 0 -2px 0 #2f6f5e;
+}
+
+.guide-word-passed {
+  background: #ebe3d4;
+  color: #5c675f;
+}
+
+/* Floating practice controls — right side on desktop, bottom dock on small screens */
+.practice-dock {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-card) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgb(31 42 36 / 12%);
+}
+
+@media (min-width: 900px) {
+  .practice-dock {
+    top: 50%;
+    right: 0.85rem;
+    transform: translateY(-50%);
+    width: min(14.5rem, calc(100vw - 1.5rem));
+    max-height: calc(100vh - 1.5rem);
+    overflow-y: auto;
+    border-radius: 1rem;
+  }
+
+  .app-shell {
+    /* Room for the floating Outils dock while keeping the passage wide */
+    padding-right: 15.5rem;
+    max-width: min(90rem, calc(100vw - 0.5rem));
+  }
+}
+
+@media (max-width: 899px) {
+  .practice-dock {
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    width: auto;
+    max-height: min(48vh, 22rem);
+    overflow-y: auto;
+    border-radius: 1rem;
+    flex-direction: column;
+  }
+
+  .app-shell {
+    padding-bottom: 14rem;
+  }
+}
+
+.practice-dock__label {
+  margin: 0;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+}
+
+.practice-dock__divider {
+  height: 1px;
+  background: var(--color-border);
+}
+
+.practice-dock__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.practice-dock__actions > button {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.practice-dock__pace {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.practice-dock__pace > button {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Left-side help (?) — opposite the practice dock */
+.help-fab {
+  position: fixed;
+  z-index: 45;
+  left: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-card) 94%, transparent);
+  color: var(--color-foreground);
+  box-shadow: 0 8px 24px rgb(31 42 36 / 12%);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.help-fab:hover {
+  background: var(--color-secondary);
+}
+
+.help-fab:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 899px) {
+  .help-fab {
+    top: auto;
+    bottom: calc(min(48vh, 22rem) + 1rem);
+    transform: none;
+  }
+}
+
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgb(31 42 36 / 35%);
+  display: flex;
+  justify-content: flex-start;
+}
+
+.help-panel {
+  width: min(26rem, 100vw);
+  height: 100%;
+  overflow-y: auto;
+  background: var(--color-card);
+  border-right: 1px solid var(--color-border);
+  box-shadow: 8px 0 32px rgb(31 42 36 / 18%);
+  padding: 1.25rem 1.25rem 2rem;
+  animation: help-slide-in 0.2s ease-out;
+}
+
+@keyframes help-slide-in {
+  from {
+    transform: translateX(-12px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.help-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.help-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.help-panel__section h3 {
+  margin: 0 0 0.4rem;
+  font-family: var(--font-serif);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.help-panel__section ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.help-panel__section li::marker {
+  color: var(--color-ring);
+}
+
+@media (min-width: 900px) {
+  .app-shell {
+    padding-left: 3.75rem;
+  }
+}

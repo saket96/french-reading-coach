@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <div id="saved-flash" class="saved-flash" role="status" aria-live="polite">Saved</div>
+
+    <main class="page">
+      <header class="page-head">
+        <p class="muted" style="margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)">
+          Coach de lecture française
+        </p>
+        <h1><span data-i18n="brand"></span> settings</h1>
+        <p class="muted">Dual subtitles on YouTube and Netflix. Click any word for a definition.</p>
+      </header>
+
+      <!-- General -->
+      <section class="card">
+        <h2 class="card-title">General</h2>
+        <div class="checks">
+          <label class="check">
+            <input type="checkbox" id="opt-enabled" />
+            <span>Enable <span data-i18n="brand"></span></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="opt-site-youtube" />
+            <span>Use on YouTube</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="opt-site-netflix" />
+            <span>Use on Netflix</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="opt-site-generic" />
+            <span>Use on other video sites (HTML5 subtitles)</span>
+          </label>
+          <p class="muted" style="margin:4px 0 0;font-size:12px">
+            On other sites DualCoach looks for HTML5 <code>&lt;video&gt;</code>
+            plus subtitle tracks or linked <code>.vtt</code>/<code>.srt</code>
+            files (Archive.org-style, Video.js, Plyr, MediaElement, and similar
+            open players). Sites that only paint captions on canvas still won’t work.
+          </p>
+        </div>
+      </section>
+
+      <!-- Languages -->
+      <section class="card">
+        <h2 class="card-title">Languages</h2>
+        <div class="lang-grid">
+          <div class="field">
+            <label class="field-label" for="opt-learnLang">I'm learning</label>
+            <select id="opt-learnLang" class="control"></select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="opt-nativeLang">My language</label>
+            <select id="opt-nativeLang" class="control"></select>
+          </div>
+        </div>
+        <p class="note muted">
+          The top line shows subtitles in the language you're learning; click its words for definitions.
+          The second line shows your language: the video's own subtitles when available, otherwise YouTube's auto-translation.
+          "Auto" uses the language spoken in the video.
+        </p>
+      </section>
+
+      <!-- Subtitles -->
+      <section class="card">
+        <h2 class="card-title">Subtitles</h2>
+
+        <div class="field">
+          <label class="field-label" for="opt-font">Font size</label>
+          <div class="slider-row">
+            <input type="range" id="opt-font" min="0.7" max="1.6" step="0.05" />
+            <span class="slider-val" id="opt-font-val">100%</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="checks">
+            <label class="check align-top">
+              <input type="checkbox" id="opt-blurNative" />
+              <span class="check-body">Blur translation<span class="desc">Blur the second line until you hover over it (shortcut E)</span></span>
+            </label>
+            <label class="check align-top">
+              <input type="checkbox" id="opt-blurLearn" />
+              <span class="check-body">Blur original<span class="desc">Blur the top line for listening practice</span></span>
+            </label>
+            <label class="check align-top">
+              <input type="checkbox" id="opt-hoverPause" />
+              <span class="check-body">Pause while hovering subtitles<span class="desc">Playback resumes when the mouse leaves</span></span>
+            </label>
+            <label class="check align-top">
+              <input type="checkbox" id="opt-autoPause" />
+              <span class="check-body">Auto-pause after each line<span class="desc">Good for shadowing one sentence at a time (shortcut Q)</span></span>
+            </label>
+            <label class="check align-top">
+              <input type="checkbox" id="opt-autoTranslate" />
+              <span class="check-body">Auto-translate fallback<span class="desc">On YouTube, use auto-translated subtitles when there are none in your language (marked "Auto-translated")</span></span>
+            </label>
+            <label class="check align-top">
+              <input type="checkbox" id="opt-showSidebar" />
+              <span class="check-body">Show script panel on the side<span class="desc">Lingopie-style dual subtitles beside the video (Script + Vocab tabs). Shortcut T</span></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- Keyboard shortcuts -->
+      <section class="card">
+        <h2 class="card-title">Keyboard shortcuts</h2>
+        <div class="table-wrap">
+          <table class="table keys">
+            <thead>
+              <tr><th class="col-k">Key</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="kbd">A</span></td><td>Previous line</td></tr>
+              <tr><td><span class="kbd">S</span></td><td>Replay current line</td></tr>
+              <tr><td><span class="kbd">D</span></td><td>Next line</td></tr>
+              <tr><td><span class="kbd">Q</span></td><td>Toggle auto-pause after each line</td></tr>
+              <tr><td><span class="kbd">E</span></td><td>Toggle blur translation</td></tr>
+              <tr><td><span class="kbd">T</span></td><td>Open/close the transcript</td></tr>
+              <tr><td><span class="kbd">Alt</span> + <span class="kbd">S</span></td><td>Hide/show <span data-i18n="brand"></span> subtitles (the site's own captions return while hidden)</td></tr>
+              <tr><td><span class="kbd">Esc</span></td><td>Close the word card</td></tr>
+              <tr><td>Click · drag</td><td>Look up a word or a phrase (the video pauses)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note muted">Space and arrow keys keep working as usual on YouTube and Netflix.</p>
+      </section>
+
+      <!-- OpenSubtitles -->
+      <section class="card">
+        <h2 class="card-title">OpenSubtitles</h2>
+        <p class="note muted">
+          Optional fallback for movie sites when the player has no captions.
+          Search by film or series title from the Script panel.
+          Get a free API key at
+          <a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noreferrer">opensubtitles.com/consumers</a>
+          — your key stays in this browser.
+        </p>
+        <div class="field">
+          <label class="field-label" for="opt-os-key">API key</label>
+          <div class="row">
+            <input type="password" id="opt-os-key" class="control" autocomplete="off" spellcheck="false" placeholder="Paste your OpenSubtitles API key" />
+            <button type="button" id="btn-os-key-toggle" class="btn" aria-pressed="false">Show</button>
+            <button type="button" id="btn-os-test" class="btn btn-primary">Test</button>
+          </div>
+          <div id="os-test-result" class="test-result" role="status" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <!-- AI explanations -->
+      <section class="card">
+        <h2 class="card-title">AI explanations</h2>
+        <p class="note muted">
+          Optional. Your key stays in this browser and is sent only to the provider you choose.
+          With a key, phrases and words without a dictionary entry are explained in context, in your language.
+          When you save or test a key, Chrome asks for permission to contact that provider.
+        </p>
+
+        <div class="field">
+          <label class="field-label" for="opt-provider">Provider</label>
+          <select id="opt-provider" class="control control-sm">
+            <option value="none">Off</option>
+            <option value="openrouter">OpenRouter (free models)</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="anthropic">Anthropic Claude</option>
+          </select>
+        </div>
+
+        <div id="llm-detail" class="llm-detail">
+          <div class="field">
+            <label class="field-label" for="opt-apikey">API key</label>
+            <div class="row">
+              <input type="password" id="opt-apikey" class="control" autocomplete="off" spellcheck="false" placeholder="Paste your API key" />
+              <button type="button" id="btn-key-toggle" class="btn" aria-pressed="false">Show</button>
+              <button type="button" id="btn-test" class="btn btn-primary">Test</button>
+            </div>
+            <div id="test-result" class="test-result" role="status" aria-live="polite"></div>
+            <p class="note muted" id="key-help"></p>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="opt-model">Model</label>
+            <input type="text" id="opt-model" class="control" autocomplete="off" spellcheck="false" />
+          </div>
+
+          <div class="field">
+            <div class="field-label">Meaning in context (single words)</div>
+            <div class="radios">
+              <label class="radio">
+                <input type="radio" name="contextMode" value="auto" />
+                <span class="radio-body"><span class="radio-title">Automatic</span><span class="radio-desc">Load it with every dictionary lookup</span></span>
+              </label>
+              <label class="radio">
+                <input type="radio" name="contextMode" value="click" />
+                <span class="radio-body"><span class="radio-title">On request</span><span class="radio-desc">Show a button on the word card</span></span>
+              </label>
+              <label class="radio">
+                <input type="radio" name="contextMode" value="off" />
+                <span class="radio-body"><span class="radio-title">Off</span><span class="radio-desc">Dictionary only</span></span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Vocabulary -->
+      <section class="card">
+        <h2 class="card-title">Vocabulary</h2>
+        <div class="row row-end">
+          <button type="button" id="vocab-export" class="btn">Export CSV</button>
+          <button type="button" id="vocab-anki" class="btn">Export for Anki (TSV)</button>
+          <button type="button" id="vocab-clear" class="btn">Delete all</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="vocab-table">
+            <thead>
+              <tr>
+                <th class="col-term">Word</th>
+                <th class="col-meaning">Meaning</th>
+                <th class="col-context">Sentence</th>
+                <th class="col-title">Video</th>
+                <th class="col-link">Link</th>
+                <th class="col-act"><span class="sr-only">Delete</span></th>
+              </tr>
+            </thead>
+            <tbody id="vocab-body"></tbody>
+          </table>
+        </div>
+        <div id="vocab-empty" class="empty" hidden>Nothing saved yet. Use the bookmark button on a word card to save words.</div>
+      </section>
+
+      <!-- About -->
+      <section class="card about">
+        <h2 class="card-title">About</h2>
+        <dl>
+          <dt>Version</dt>
+          <dd><span data-i18n="brand"></span> <span id="about-version"></span></dd>
+          <dt>Dictionary</dt>
+          <dd>
+            Definitions from <a href="https://en.wiktionary.org/" target="_blank" rel="noreferrer noopener">Wiktionary</a>,
+            available under <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noreferrer noopener">CC BY-SA 4.0</a>.
+          </dd>
+          <dt>Translation</dt>
+          <dd>Chrome's built-in translator, which runs on your device.</dd>
+          <dt>Privacy</dt>
+          <dd><a href="privacy.html" target="_blank">Privacy policy</a></dd>
+          <dt>Cache</dt>
+          <dd>
+            <div class="row">
+              <button type="button" id="cache-clear" class="btn btn-sm">Clear lookup cache</button>
+              <span id="cache-result" class="msg" role="status" aria-live="polite"></span>
+            </div>
+          </dd>
+        </dl>
+      </section>
+    </main>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "appName": {
+    "message": "DualCoach — Coach de lecture française",
+    "description": "Extension name shown in the Chrome Web Store and chrome://extensions."
+  },
+  "appShortName": {
+    "message": "DualCoach",
+    "description": "Short extension name."
+  },
+  "brand": {
+    "message": "DualCoach",
+    "description": "Product name used inside the UI (popup, options page, overlay)."
+  },
+  "appDescription": {
+    "message": "Dual subtitles on YouTube, Netflix & HTML5 video sites. Click words, save vocab. From Coach de lecture française.",
+    "description": "Store description, 132 characters or fewer."
+  }
+}
