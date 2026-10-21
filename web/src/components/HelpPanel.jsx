@@ -44,7 +44,9 @@ const SECTIONS = [
   {
     title: 'Texte & vocabulaire',
     body: [
-      'Bibliothèque : passages prêts. Texte perso : collez votre français.',
+      'Bibliothèque : passages prêts. Mon texte : collez du français, ou importez un PDF / Word (.docx).',
+      'Après import, vérifiez le texte dans la zone, puis Utiliser ce texte.',
+      'Les PDF scannés (image seule) n’ont souvent pas de texte extractible — collez alors le contenu.',
       'Mes travaux : sauver / rouvrir localement ; Exporter / Importer pour passer d’Opera à Safari.',
       'Révision : carte des mots sauvés pour réviser.',
     ],

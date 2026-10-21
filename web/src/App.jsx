@@ -5,6 +5,7 @@ import {
   CircleHelp,
   CircleStop,
   Database,
+  FileUp,
   Languages,
   Layers,
   Mic,
@@ -20,6 +21,7 @@ import { Button } from './components/ui/button.jsx'
 import { HelpPanel } from './components/HelpPanel.jsx'
 import { VocabDeck } from './components/VocabDeck.jsx'
 import { WorksPanel } from './components/WorksPanel.jsx'
+import { extractTextFromDocument } from './lib/documentImport.js'
 import { FIXTURE_CHUNK_INDEX, FIXTURE_PASSAGE_ID, FIXTURE_TRANSCRIPT } from './fixtures.js'
 import { alignWords, practiceErrors } from './lib/align.js'
 import { findTimingForHyp, playAudioRange } from './lib/audioClip.js'
@@ -236,6 +238,8 @@ export default function App() {
   const [showDeck, setShowDeck] = useState(false)
   const [showWorks, setShowWorks] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [importBusy, setImportBusy] = useState(false)
+  const [importNote, setImportNote] = useState('')
   const [activeWorkId, setActiveWorkId] = useState('')
   const [activeWorkTitle, setActiveWorkTitle] = useState('')
   const [guideWordIndex, setGuideWordIndex] = useState(-1)
@@ -264,6 +268,7 @@ export default function App() {
   const guideStopRef = useRef(null)
   /** Active listen session so a click-explain can resume from the interrupt point. */
   const listenSessionRef = useRef(null)
+  const documentInputRef = useRef(null)
 
   const paceConfig = PACE_PRESETS[pace] || PACE_PRESETS.moyen
 
@@ -694,7 +699,7 @@ export default function App() {
   const applyCustomText = () => {
     const trimmed = customDraft.trim()
     if (!trimmed) {
-      setError('Collez ou écrivez un texte français avant de continuer.')
+      setError('Collez, importez (PDF/Word) ou écrivez un texte français avant de continuer.')
       return
     }
     saveCustomText(trimmed)
@@ -703,6 +708,28 @@ export default function App() {
     setChunkIndex(0)
     resetAttempt()
     setError('')
+    setImportNote('')
+  }
+
+  const importDocumentFile = async (file) => {
+    if (!file || importBusy) return
+    setImportBusy(true)
+    setError('')
+    setImportNote('')
+    try {
+      const { text, kind, fileName } = await extractTextFromDocument(file)
+      setCustomDraft(text)
+      setImportNote(
+        kind === 'pdf'
+          ? `PDF importé : ${fileName} — vérifiez le texte, puis Utiliser ce texte.`
+          : `Word importé : ${fileName} — vérifiez le texte, puis Utiliser ce texte.`,
+      )
+    } catch (err) {
+      setError(err?.message || 'Import impossible')
+    } finally {
+      setImportBusy(false)
+      if (documentInputRef.current) documentInputRef.current.value = ''
+    }
   }
 
   const openWorksPanel = () => {
@@ -1389,18 +1416,49 @@ export default function App() {
       ) : (
         <div className="mb-4 space-y-2">
           <label className="block text-sm font-medium" htmlFor="custom">
-            Votre texte (collé ou écrit)
+            Votre texte (collé, écrit, PDF ou Word)
           </label>
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={documentInputRef}
+              type="file"
+              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) void importDocumentFile(file)
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={importBusy || phase === 'recording'}
+              onClick={() => documentInputRef.current?.click()}
+              title="Importer un PDF ou un fichier Word (.docx)"
+            >
+              <FileUp className="h-4 w-4" />
+              {importBusy ? 'Import…' : 'PDF / Word'}
+            </Button>
+            <p className="flex items-center text-xs text-muted-foreground">
+              .pdf ou .docx — le texte apparaît ci-dessous pour vérification
+            </p>
+          </div>
           <textarea
             id="custom"
             rows={5}
             className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm leading-relaxed"
-            placeholder="Collez un article, un dialogue, ou écrivez vos phrases…"
+            placeholder="Collez un article, importez un PDF/Word, ou écrivez vos phrases…"
             value={customDraft}
-            onChange={(event) => setCustomDraft(event.target.value)}
+            onChange={(event) => {
+              setCustomDraft(event.target.value)
+              setImportNote('')
+            }}
           />
+          {importNote ? <p className="text-xs text-ring">{importNote}</p> : null}
           <div className="flex flex-wrap gap-2">
-            <Button onClick={applyCustomText}>Utiliser ce texte</Button>
+            <Button onClick={applyCustomText} disabled={importBusy}>
+              Utiliser ce texte
+            </Button>
             <Button variant="outline" onClick={openWorksPanel}>
               <Database className="h-4 w-4" />
               Sauver dans Mes travaux
