@@ -12,7 +12,7 @@
   DC.createOverlay = function (adapter) {
     var host = document.createElement("div");
     host.setAttribute("data-dualcoach", "");
-    host.setAttribute("style", "all:initial;position:absolute;inset:0;pointer-events:none;z-index:60;");
+    host.setAttribute("style", "all:initial;position:absolute;inset:0;pointer-events:none;z-index:2147483000;");
     var shadow = host.attachShadow({ mode: "closed" });
     shadow.innerHTML =
       "<style>" + DC.CSS + "</style>" +
@@ -36,9 +36,14 @@
       '<div class="side-panes">' +
       '<div class="pane on" data-pane="script">' +
       '<div class="os-box">' +
-      '<div class="os-hd">Add subtitles</div>' +
-      '<p class="os-help">Site has no CC? Search OpenSubtitles (API key + account in Settings), load .srt/.vtt, or Translate lines with Chrome’s on-device translator.</p>' +
-      '<input class="os-q" type="search" placeholder="Movie or series title (e.g. Rebel Moon S01E01)" spellcheck="false" />' +
+      '<button class="os-toggle" data-os="toggle" type="button">' +
+      '<span class="os-toggle-label">Add subtitles</span>' +
+      '<span class="os-toggle-chevron" aria-hidden="true"></span>' +
+      "</button>" +
+      '<div class="os-quick" hidden></div>' +
+      '<div class="os-body">' +
+      '<p class="os-help">Search OpenSubtitles (API key + account in Settings), load .srt/.vtt, or translate lines on-device.</p>' +
+      '<input class="os-q" type="search" placeholder="Movie or series title (e.g. Amélie)" spellcheck="false" />' +
       '<div class="os-actions">' +
       '<button class="os-btn" data-os="search" type="button">Search</button>' +
       '<button class="os-btn os-btn-primary" data-os="best" type="button">Load best dual</button>' +
@@ -52,7 +57,7 @@
       "</div>" +
       '<div class="os-status" hidden></div>' +
       '<div class="os-results"></div>' +
-      "</div>" +
+      "</div></div>" +
       '<div class="list" style="position:relative"></div></div>' +
       '<div class="pane" data-pane="vocab"><div class="list vocab-list"></div></div>' +
       "</div></aside>" +
@@ -66,6 +71,10 @@
     var list = $(".pane[data-pane='script'] .list");
     var vocabList = $(".vocab-list");
     var osBox = $(".os-box");
+    var osBody = $(".os-body");
+    var osQuick = $(".os-quick");
+    var osToggle = $(".os-toggle");
+    var osToggleLabel = $(".os-toggle-label");
     var osQ = $(".os-q");
     var osStatus = $(".os-status");
     var osResults = $(".os-results");
@@ -83,6 +92,7 @@
     var lineTranslator = null;
     var lineTranslatorKey = "";
     var mtBusy = false;
+    var osToolsOpen = true;
 
     STOP_EVENTS.forEach(function (t) {
       host.addEventListener(t, function (e) { e.stopPropagation(); }, false);
@@ -191,6 +201,23 @@
       return DC.langName(DC.settings.nativeLang || meta.nativeLang || "en") || "English";
     }
 
+    function setOsToolsOpen(open) {
+      // Always show tools when there are no cues yet
+      osToolsOpen = !cues.length ? true : !!open;
+      if (osBox) osBox.classList.toggle("os-collapsed", cues.length > 0 && !osToolsOpen);
+      if (osToggle) {
+        osToggle.setAttribute("aria-expanded", osToolsOpen ? "true" : "false");
+        if (osToggleLabel) {
+          osToggleLabel.textContent = !cues.length
+            ? "Add subtitles"
+            : osToolsOpen
+              ? "Subtitle sources"
+              : "Change subtitles";
+        }
+      }
+      refreshNativeActions();
+    }
+
     function refreshNativeActions() {
       var need = cues.length > 0 && !hasNativeTrack();
       if (osAddNativeBtn) {
@@ -200,6 +227,21 @@
       if (osMtBtn) {
         osMtBtn.hidden = !need;
         osMtBtn.textContent = "Translate lines → " + nativeLangLabel();
+      }
+      // Compact actions stay visible when the big form is collapsed
+      if (osQuick) {
+        if (need && cues.length && !osToolsOpen) {
+          osQuick.hidden = false;
+          osQuick.innerHTML =
+            '<button class="os-chip" data-os="add-native" type="button">Add ' +
+            esc(nativeLangLabel()) +
+            "</button>" +
+            '<button class="os-chip" data-os="mt" type="button">Translate</button>' +
+            '<button class="os-chip os-chip-muted" data-os="toggle" type="button">Sources</button>';
+        } else {
+          osQuick.hidden = true;
+          osQuick.innerHTML = "";
+        }
       }
     }
 
@@ -349,6 +391,7 @@
     }
 
     function putCues(list_, meta_) {
+      var hadCues = cues.length > 0;
       cues = list_ || [];
       meta = meta_ || {};
       idleShell = false;
@@ -358,6 +401,9 @@
       activeIdx = -1;
       autoPausedFor = -1;
       if (DC.card.isOpen()) DC.card.close();
+      // First successful load → collapse the form so the script fills the panel
+      if (cues.length && !hadCues) osToolsOpen = false;
+      if (!cues.length) osToolsOpen = true;
       ensureMounted();
       buildSidebar();
       applySettings();
@@ -722,9 +768,10 @@
       sideSub.textContent = cues.length ? cues.length + " lines · " + (meta.label || "Script") : "Script panel";
       if (osQ && !osQ.value) osQ.value = guessTitle();
       if (osBox) osBox.hidden = false;
+      setOsToolsOpen(osToolsOpen);
       if (!cues.length) {
         list.innerHTML =
-          '<div class="empty">No subtitles yet. Enable CC in the player, or search OpenSubtitles above.</div>';
+          '<div class="empty">No subtitles yet. Search OpenSubtitles above, or load .srt / .vtt files.</div>';
         return;
       }
       var html = "";
@@ -962,10 +1009,14 @@
     }
 
     function openLookup(cueIdx, a, b, lineEl, fromSide) {
+      if (cueIdx < 0 || cueIdx >= cues.length || !lineEl) return false;
       var toks = tokensOf(cueIdx);
       var lo = Math.min(a, b), hi = Math.max(a, b);
+      if (!toks[lo] || !toks[hi]) return false;
       var c = cues[cueIdx];
+      if (!c || !c.src) return false;
       var text = c.src.slice(toks[lo].start, toks[hi].end);
+      if (!String(text || "").trim()) return false;
       var v = getVideo();
       if (v && !v.paused) adapter.pause();
       var first = lineEl.querySelector('.w[data-i="' + lo + '"]');
@@ -979,19 +1030,25 @@
         var r1 = relRect(first || lineEl), r2 = relRect(last || lineEl), sb = relRect(subs);
         anchor = { left: Math.min(r1.left, r2.left), right: Math.max(r1.right, r2.right), top: sb.top, bottom: sb.bottom };
       }
-      DC.card.open({
+      var learn = meta.learnLang && meta.learnLang !== "auto" && meta.learnLang !== "und"
+        ? meta.learnLang
+        : DC.settings.learnLang === "auto"
+          ? "fr"
+          : DC.settings.learnLang;
+      var ok = DC.card.open({
         layer: layer,
         text: text,
         isWord: lo === hi,
         context: c.src,
         contextNative: c.nat,
-        lang: meta.learnLang,
-        native: meta.nativeLang,
+        lang: learn,
+        native: meta.nativeLang || DC.settings.nativeLang || "en",
         place: { root: root, anchor: anchor, mode: fromSide ? "left" : "above" },
         meta: { site: adapter.site, title: adapter.title(), url: adapter.link(0), time: Math.floor(c.start) },
         onClose: onCardClose
       });
-      markSel(lineEl, lo, hi);
+      if (ok) markSel(lineEl, lo, hi);
+      return !!ok;
     }
 
     function markSel(lineEl, lo, hi) {
@@ -1023,6 +1080,7 @@
     function onMouseDown(e) {
       if (e.button !== 0) return;
       var t = e.target;
+      if (t && t.nodeType === 3) t = t.parentElement;
       if (DC.card.contains(t)) return;
       var resizeHandle = t.closest && t.closest("[data-act='side-resize']");
       if (resizeHandle) {
@@ -1035,9 +1093,16 @@
       }
       var w = t.closest && t.closest(".w");
       if (w) {
+        e.preventDefault();
+        e.stopPropagation();
         var line = lineOf(w);
         if (!line) return;
-        drag = { line: line, cue: Number(line.getAttribute("data-cue")), a: Number(w.getAttribute("data-i")), side: !!w.closest(".side") };
+        drag = {
+          line: line,
+          cue: Number(line.getAttribute("data-cue")),
+          a: Number(w.getAttribute("data-i")),
+          side: !!w.closest(".side")
+        };
         drag.b = drag.a;
         markSel(drag.line, drag.a, drag.b);
         return;
@@ -1047,7 +1112,9 @@
 
     function onMouseMove(e) {
       if (!drag) return;
-      var w = e.target.closest && e.target.closest(".w");
+      var t = e.target;
+      if (t && t.nodeType === 3) t = t.parentElement;
+      var w = t && t.closest && t.closest(".w");
       if (!w || !drag.line.contains(w)) return;
       var i = Number(w.getAttribute("data-i"));
       if (i !== drag.b) {
@@ -1056,19 +1123,39 @@
       }
     }
 
-    function finishDrag() {
+    function finishDrag(e) {
+      if (resizeDrag) return;
       if (!drag) return;
+      if (e && e.button != null && e.button !== 0) return;
       var d = drag;
       drag = null;
       suppressClick = true;
-      setTimeout(function () { suppressClick = false; }, 0);
+      setTimeout(function () { suppressClick = false; }, 50);
       openLookup(d.cue, d.a, d.b, d.line, d.side);
     }
 
     function onClick(e) {
-      if (suppressClick) { suppressClick = false; return; }
+      if (suppressClick) {
+        suppressClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       var t = e.target;
+      if (t && t.nodeType === 3) t = t.parentElement;
       if (DC.card.contains(t)) return;
+      // Word click fallback (touch / sites that drop mouseup pairing)
+      var w = t.closest && t.closest(".w");
+      if (w) {
+        e.preventDefault();
+        e.stopPropagation();
+        var line = lineOf(w);
+        if (line) {
+          var wi = Number(w.getAttribute("data-i"));
+          openLookup(Number(line.getAttribute("data-cue")), wi, wi, line, !!w.closest(".side"));
+        }
+        return;
+      }
       var tabBtn = t.closest && t.closest(".stab[data-tab]");
       if (tabBtn) {
         setSideTab(tabBtn.getAttribute("data-tab"));
@@ -1077,10 +1164,15 @@
       var osAct = t.closest && t.closest("[data-os]");
       if (osAct) {
         var act = osAct.getAttribute("data-os");
-        if (act === "search") osSearch();
-        else if (act === "best") osLoadBest();
-        else if (act === "files") osLoadLocalFiles();
-        else if (act === "add-native") osAddNative();
+        if (act === "toggle") setOsToolsOpen(cues.length ? !osToolsOpen : true);
+        else if (act === "search") {
+          setOsToolsOpen(true);
+          osSearch();
+        } else if (act === "best") osLoadBest();
+        else if (act === "files") {
+          setOsToolsOpen(true);
+          osLoadLocalFiles();
+        } else if (act === "add-native") osAddNative();
         else if (act === "mt") osMachineTranslate();
         return;
       }
@@ -1103,15 +1195,16 @@
         }
         return;
       }
-      var act = t.closest && t.closest("[data-act]");
-      if (act) {
-        var name = act.getAttribute("data-act");
+      var actEl = t.closest && t.closest("[data-act]");
+      if (actEl) {
+        var name = actEl.getAttribute("data-act");
         if (name === "side-resize") return;
         if (name === "side" || name === "side-close") {
           toggleSetting("showSidebar", "Script panel");
         }
         return;
       }
+      // Row seek only when not clicking a word
       var row = t.closest && t.closest(".row");
       if (row) seekTo(Number(row.getAttribute("data-cue")));
     }
