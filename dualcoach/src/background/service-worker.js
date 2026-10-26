@@ -81,7 +81,8 @@ function cachedDefinition(word, lang) {
 async function doLookup({ text, context, isWord, lang, native }) {
   const query = String(text || "").trim();
   if (!query) return { kind: "error", error: "Nothing selected" };
-  const learn = baseLang(lang);
+  // Learning language for definitions + conjugation (default French for this coach)
+  const learn = baseLang(lang) || "fr";
   const nat = baseLang(native) || "en";
 
   // 1) Wiktionary for single words (spaceless scripts: any short selection without spaces).
@@ -188,12 +189,28 @@ const handlers = {
   async speak(msg) {
     const text = String(msg.text || "").trim();
     if (!text) return { ok: false };
-    const b = baseLang(msg.lang);
-    const lang = /-/.test(String(msg.lang || "")) ? String(msg.lang) : TTS_LANG[b] || b || "en-US";
+    // Prefer learning language (French) — never fall back to en-US for fr/es/…
+    let b = baseLang(msg.lang);
+    if (!b || b === "und") b = "fr";
+    const lang = /-/.test(String(msg.lang || "")) ? String(msg.lang) : TTS_LANG[b] || b;
     try {
       chrome.tts.stop();
-      chrome.tts.speak(text, { lang, rate: 0.95 });
-      return { ok: true };
+      const voices = await new Promise((resolve) => {
+        try {
+          chrome.tts.getVoices((list) => resolve(Array.isArray(list) ? list : []));
+        } catch (_) {
+          resolve([]);
+        }
+      });
+      const want = String(lang).toLowerCase();
+      const voice =
+        voices.find((v) => v && v.lang && v.lang.toLowerCase() === want) ||
+        voices.find((v) => v && v.lang && v.lang.toLowerCase().startsWith(b + "-")) ||
+        voices.find((v) => v && v.lang && v.lang.toLowerCase().startsWith(b));
+      const opts = { lang, rate: 0.95 };
+      if (voice && voice.voiceName) opts.voiceName = voice.voiceName;
+      chrome.tts.speak(text, opts);
+      return { ok: true, lang, voice: (voice && voice.voiceName) || "" };
     } catch (e) {
       return { ok: false, error: String(e && e.message) };
     }

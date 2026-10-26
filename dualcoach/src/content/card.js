@@ -152,31 +152,42 @@
       if (groups.length > shown.length) hasMore = true;
       var inner = "";
       shown.forEach(function (g) {
-        var senses = showAll ? g.senses : g.senses.slice(0, 3);
-        if (g.senses.length > senses.length || (g.example && !showAll)) hasMore = true;
+        var senses = (g.senses || []).slice();
+        if (!showAll) senses = senses.slice(0, 3);
+        if ((g.senses || []).length > senses.length || (g.example && !showAll)) hasMore = true;
         var mh = "";
         senses.forEach(function (m, i) {
           mh += '<div class="mean"><span class="num">' + (i + 1) + "</span><span>" + esc(m.text) + "</span></div>";
         });
         if (g.example && showAll) mh += '<div class="ex" lang="' + esc(s.lang || "") + '"><i>' + esc(g.example) + "</i></div>";
-        inner += '<div class="grp">' + (g.pos ? '<div class="pos">' + esc(g.pos) + "</div>" : "") + mh + "</div>";
+        if (mh) inner += '<div class="grp">' + (g.pos ? '<div class="pos">' + esc(g.pos) + "</div>" : "") + mh + "</div>";
       });
       if (!inner) return;
       var label = entries.length > 1 && ent.headword ? '<div class="ent-hw">' + esc(ent.headword) + "</div>" : "";
       body += '<div class="ent">' + label + inner + "</div>";
     });
+    if (!body && (d.formOf || d.lemma)) {
+      body =
+        '<div class="ent"><div class="grp"><div class="pos">Form</div>' +
+        '<div class="mean"><span class="num">1</span><span>' +
+        esc(d.formOf || "inflected form of " + d.lemma) +
+        "</span></div></div></div>";
+    }
     if (hasMore) body += '<button class="more" data-act="more" type="button">' + (showAll ? "Less" : "More") + "</button>";
 
-    var head = d.lemma || d.headword;
+    var head = d.lemma || d.headword || s.text;
     var lemma = d.lemma
-      ? '<div class="lemma">' + esc(s.text) + " → " + esc(d.lemma) + (d.formOf ? " · " + esc(d.formOf) : "") + "</div>" : "";
+      ? '<div class="lemma">' + esc(s.text) + " → " + esc(d.lemma) + (d.formOf ? " · " + esc(d.formOf) : "") + "</div>"
+      : d.formOf
+        ? '<div class="lemma">' + esc(d.formOf) + "</div>"
+        : "";
     var link = entries.length && entries[0].link ? entries[0].link : d.link;
 
     render("dict",
       '<div class="hd"><div class="hd-main"><div class="hw" lang="' + esc(s.lang || "") + '">' + esc(head) + "</div>" + lemma +
       "</div>" + headActions(d.saved) + "</div>" +
       '<div class="bd">' + glossSection() + body + contextSection() + sentenceSection() + "</div>" +
-      footer('<a href="' + esc(link) + '" target="_blank" rel="noreferrer noopener">Wiktionary</a> · ' +
+      footer('<a href="' + esc(link || "#") + '" target="_blank" rel="noreferrer noopener">Wiktionary</a> · ' +
         '<a href="' + LICENSE_URL + '" target="_blank" rel="noreferrer noopener">CC BY-SA 4.0</a>')
     );
     if (DC.llmReady && DC.settings.contextMode === "auto" && !s.ctxState) loadContext();
@@ -350,8 +361,9 @@
     var act = btn.getAttribute("data-act");
     if (act === "close") close();
     else if (act === "speak") {
-      var d = state.data;
-      DC.send({ type: "speak", text: d && d.kind === "dict" ? d.lemma || d.headword : state.text, lang: state.lang });
+      // Pronounce the clicked surface form in the learning language (not native EN)
+      var speakLang = DC.P.baseLang(state.lang) || "fr";
+      DC.send({ type: "speak", text: state.text, lang: speakLang });
     }
     else if (act === "vocab") toggleVocab();
     else if (act === "more") { state.expanded = !state.expanded; renderDict(); }

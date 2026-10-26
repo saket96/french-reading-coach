@@ -105,7 +105,7 @@
     var raf = 0, watchdog = 0, toastTimer = 0, lastToast = "";
     var hiddenByUser = false;
     var nativeHidden = false;
-    var overSubs = false, hoverPaused = false;
+    var overSubs = false, hoverPaused = false, studyPaused = false;
     var activeIdx = -1, autoPausedFor = -1;
     var lastUserScroll = 0;
     var drag = null, suppressClick = false;
@@ -152,9 +152,36 @@
       return video;
     }
 
+    function pauseForStudy() {
+      studyPaused = true;
+      try {
+        adapter.pause();
+      } catch (_) {
+        /* ignore */
+      }
+      var v = getVideo();
+      if (v && !v.paused) {
+        try {
+          v.pause();
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+
     function onPlay() {
-      if (DC.card.isOpen()) DC.card.close();
+      // Movie sites often auto-resume after a scripted pause — hold it while the card is open
+      // or while the pointer is over subtitles (hover-pause).
+      if (studyPaused || DC.card.isOpen() || (hoverPaused && overSubs)) {
+        try {
+          adapter.pause();
+        } catch (_) {
+          /* ignore */
+        }
+        return;
+      }
       hoverPaused = false;
+      studyPaused = false;
     }
     function onSeeking() { activeIdx = -1; }
 
@@ -1017,8 +1044,8 @@
       if (!c || !c.src) return false;
       var text = c.src.slice(toks[lo].start, toks[hi].end);
       if (!String(text || "").trim()) return false;
-      var v = getVideo();
-      if (v && !v.paused) adapter.pause();
+      // Always pause for word study (sites may auto-resume — onPlay holds it while the card is open)
+      pauseForStudy();
       var first = lineEl.querySelector('.w[data-i="' + lo + '"]');
       var anchor;
       if (fromSide) {
@@ -1030,11 +1057,15 @@
         var r1 = relRect(first || lineEl), r2 = relRect(last || lineEl), sb = relRect(subs);
         anchor = { left: Math.min(r1.left, r2.left), right: Math.max(r1.right, r2.right), top: sb.top, bottom: sb.bottom };
       }
-      var learn = meta.learnLang && meta.learnLang !== "auto" && meta.learnLang !== "und"
-        ? meta.learnLang
-        : DC.settings.learnLang === "auto"
-          ? "fr"
-          : DC.settings.learnLang;
+      var learn =
+        P.baseLang(meta.learnLang) ||
+        (DC.settings.learnLang === "auto" ? "fr" : P.baseLang(DC.settings.learnLang)) ||
+        "fr";
+      var native =
+        P.baseLang(meta.nativeLang) || P.baseLang(DC.settings.nativeLang) || "en";
+      // Never look up / pronounce learning words as English when dual EN is loaded
+      if (P.sameLang(learn, native) && P.baseLang(meta.learnLang)) learn = P.baseLang(meta.learnLang);
+      if (!learn || learn === "und") learn = "fr";
       var ok = DC.card.open({
         layer: layer,
         text: text,
@@ -1042,12 +1073,13 @@
         context: c.src,
         contextNative: c.nat,
         lang: learn,
-        native: meta.nativeLang || DC.settings.nativeLang || "en",
+        native: native,
         place: { root: root, anchor: anchor, mode: fromSide ? "left" : "above" },
         meta: { site: adapter.site, title: adapter.title(), url: adapter.link(0), time: Math.floor(c.start) },
         onClose: onCardClose
       });
       if (ok) markSel(lineEl, lo, hi);
+      else studyPaused = false;
       return !!ok;
     }
 
@@ -1065,9 +1097,19 @@
 
     function onCardClose() {
       clearSel();
-      if (hoverPaused && !overSubs) {
+      studyPaused = false;
+      if (hoverPaused && overSubs) {
+        // Still hovering subtitles — keep paused
+        pauseForStudy();
+        studyPaused = false;
+        hoverPaused = true;
+      } else if (hoverPaused) {
         hoverPaused = false;
-        adapter.play();
+        try {
+          adapter.play();
+        } catch (_) {
+          /* ignore */
+        }
       }
       var v = getVideo();
       if (v) renderCue(P.findCue(cues, v.currentTime));
@@ -1095,6 +1137,7 @@
       if (w) {
         e.preventDefault();
         e.stopPropagation();
+        pauseForStudy();
         var line = lineOf(w);
         if (!line) return;
         drag = {
@@ -1251,23 +1294,36 @@
       /* ignore */
     }
 
-    subs.addEventListener("mouseenter", function () {
+    function onSubsEnter() {
       overSubs = true;
-      if (!DC.settings.hoverPause || !active()) return;
+      if (!active()) return;
+      // Hover-pause defaults on; still pause when the setting is missing/undefined
+      if (DC.settings.hoverPause === false) return;
       var v = getVideo();
       if (v && !v.paused) {
         hoverPaused = true;
-        adapter.pause();
+        pauseForStudy();
+        studyPaused = false; // hover-only — allow resume on leave
+        hoverPaused = true;
       }
-    });
-    subs.addEventListener("mouseleave", function () {
+    }
+    function onSubsLeave() {
       overSubs = false;
-      if (drag) return;
-      if (hoverPaused && !DC.card.isOpen()) {
+      if (drag || DC.card.isOpen()) return;
+      if (hoverPaused) {
         hoverPaused = false;
-        adapter.play();
+        studyPaused = false;
+        try {
+          adapter.play();
+        } catch (_) {
+          /* ignore */
+        }
       }
-    });
+    }
+    subs.addEventListener("mouseenter", onSubsEnter);
+    subs.addEventListener("mouseleave", onSubsLeave);
+    subs.addEventListener("pointerenter", onSubsEnter);
+    subs.addEventListener("pointerleave", onSubsLeave);
 
     function onDocDown(e) {
       if (!DC.card.isOpen()) return;

@@ -317,12 +317,36 @@
   // ---- languages ----
 
   var LANG_ALIAS = { iw: "he", "in": "id", ji: "yi" };
+  // Full names / OpenSubtitles labels → ISO 639-1 (Wiktionary + TTS need codes, not "French")
+  var LANG_NAME = {
+    french: "fr", francais: "fr", français: "fr",
+    english: "en",
+    spanish: "es", espanol: "es", español: "es",
+    german: "de", deutsch: "de",
+    italian: "it", italiano: "it",
+    portuguese: "pt", portugues: "pt", português: "pt",
+    japanese: "ja",
+    korean: "ko",
+    chinese: "zh",
+    russian: "ru",
+    arabic: "ar",
+    hindi: "hi",
+    turkish: "tr",
+    dutch: "nl",
+    polish: "pl",
+    swedish: "sv",
+    vietnamese: "vi",
+    thai: "th",
+    indonesian: "id"
+  };
 
-  // "en-US" → "en", "zh-Hans"/"zh-CN" → "zh", "pt-BR" → "pt", "iw" → "he".
+  // "en-US" → "en", "French" → "fr", "zh-Hans" → "zh", "iw" → "he".
   function baseLang(code) {
     var c = String(code || "").trim().toLowerCase().replace(/_/g, "-");
-    if (!c) return "";
+    if (!c || c === "auto" || c === "und" || c === "other") return "";
+    if (LANG_NAME[c]) return LANG_NAME[c];
     var b = c.split("-")[0];
+    if (LANG_NAME[b]) return LANG_NAME[b];
     return LANG_ALIAS[b] || b;
   }
 

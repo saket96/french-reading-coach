@@ -4,7 +4,7 @@
 export const DEFAULTS = {
   enabled: true,
   sites: { youtube: true, netflix: true, generic: true },
-  learnLang: "auto", // "auto" = the video's spoken/original language
+  learnLang: "fr", // French Reading Coach default; "auto" = video's spoken language
   nativeLang: "", // "" = browser UI language, resolved in merge()
   hoverPause: true,
   autoPause: false,
@@ -45,10 +45,38 @@ export function modelKeyFor(provider) {
 // Picker list (options + popup). "auto" is offered for learnLang only.
 export const LANGS = ["es", "fr", "de", "it", "pt", "ja", "ko", "zh", "ru", "ar", "hi", "tr", "nl", "pl", "sv", "vi", "th", "id", "en"];
 
+const LANG_NAME = {
+  french: "fr",
+  francais: "fr",
+  français: "fr",
+  english: "en",
+  spanish: "es",
+  espanol: "es",
+  español: "es",
+  german: "de",
+  italian: "it",
+  portuguese: "pt",
+  japanese: "ja",
+  korean: "ko",
+  chinese: "zh",
+  russian: "ru",
+  arabic: "ar",
+  hindi: "hi",
+  turkish: "tr",
+  dutch: "nl",
+  polish: "pl",
+  swedish: "sv",
+  vietnamese: "vi",
+  thai: "th",
+  indonesian: "id"
+};
+
 export function baseLang(code) {
   const c = String(code || "").trim().toLowerCase().replace(/_/g, "-");
-  if (!c) return "";
+  if (!c || c === "auto" || c === "und" || c === "other") return "";
+  if (LANG_NAME[c]) return LANG_NAME[c];
   const b = c.split("-")[0];
+  if (LANG_NAME[b]) return LANG_NAME[b];
   return { iw: "he", in: "id", ji: "yi" }[b] || b;
 }
 
@@ -76,7 +104,7 @@ function merge(raw) {
   const s = { ...DEFAULTS, ...(raw || {}) };
   s.sites = { ...DEFAULTS.sites, ...((raw && raw.sites) || {}) };
   s.nativeLang = baseLang(s.nativeLang) || uiLang();
-  s.learnLang = s.learnLang === "auto" ? "auto" : baseLang(s.learnLang) || "auto";
+  s.learnLang = s.learnLang === "auto" ? "auto" : baseLang(s.learnLang) || "fr";
   return s;
 }
 

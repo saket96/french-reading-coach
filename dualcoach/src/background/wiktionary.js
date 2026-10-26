@@ -89,8 +89,24 @@ export function lemmaOf(html, text) {
 
 function wikiLang(code) {
   const c = String(code || "").trim().toLowerCase().replace(/_/g, "-");
+  if (!c || c === "auto" || c === "und" || c === "other") return "";
+  const names = {
+    french: "fr",
+    francais: "fr",
+    français: "fr",
+    english: "en",
+    spanish: "es",
+    german: "de",
+    italian: "it",
+    portuguese: "pt",
+    japanese: "ja",
+    korean: "ko",
+    chinese: "zh",
+    russian: "ru"
+  };
+  if (names[c]) return names[c];
   const b = c.split("-")[0];
-  return { iw: "he", in: "id", ji: "yi" }[b] || b;
+  return names[b] || { iw: "he", in: "id", ji: "yi" }[b] || b;
 }
 
 export function entryUrl(word, languageName) {
@@ -185,9 +201,30 @@ export async function wiktionaryLookup(word, lang, opts = {}) {
     }
   }
   if (lemmaHit) {
-    entries.push({ headword: lemmaHit.headword, language: lemmaHit.language, link: lemmaHit.link, groups: lemmaHit.groups });
+    entries.push({
+      headword: lemmaHit.headword,
+      language: lemmaHit.language,
+      link: lemmaHit.link,
+      groups: lemmaHit.groups
+    });
     const own = ownGroups(hit);
-    if (own.length) entries.push({ headword: hit.headword, language: hit.language, link: hit.link, groups: own });
+    if (own.length) {
+      entries.push({ headword: hit.headword, language: hit.language, link: hit.link, groups: own });
+    } else if (hit.formOf || hit.lemma) {
+      // Pure conjugation / inflection: keep a visible form-of note under the lemma
+      entries.push({
+        headword: hit.headword,
+        language: hit.language,
+        link: hit.link,
+        groups: [
+          {
+            pos: "Form",
+            senses: [{ text: hit.formOf || "inflected form of " + hit.lemma }],
+            example: ""
+          }
+        ]
+      });
+    }
   } else {
     entries.push({ headword: hit.headword, language: hit.language, link: hit.link, groups: hit.groups });
   }
@@ -195,8 +232,9 @@ export async function wiktionaryLookup(word, lang, opts = {}) {
     headword: hit.headword,
     language: hit.language,
     link: hit.link,
-    lemma: lemmaHit ? lemmaHit.headword : "",
-    formOf: lemmaHit ? hit.formOf : "",
+    // Keep lemma/formOf even when the infinitive fetch fails — card still shows conjugation
+    lemma: (lemmaHit && lemmaHit.headword) || hit.lemma || "",
+    formOf: hit.formOf || "",
     entries
   };
 }

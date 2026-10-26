@@ -7,7 +7,7 @@
   var DEFAULTS = {
     enabled: true,
     sites: { youtube: true, netflix: true, generic: true },
-    learnLang: "auto",
+    learnLang: "fr",
     nativeLang: "",
     hoverPause: true,
     autoPause: false,
@@ -134,7 +134,7 @@
     var s = Object.assign({}, DEFAULTS, raw || {});
     s.sites = Object.assign({}, DEFAULTS.sites, (raw && raw.sites) || {});
     s.nativeLang = DC.P.baseLang(s.nativeLang) || uiLang();
-    s.learnLang = s.learnLang === "auto" ? "auto" : DC.P.baseLang(s.learnLang) || "auto";
+    s.learnLang = s.learnLang === "auto" ? "auto" : DC.P.baseLang(s.learnLang) || "fr";
     return s;
   }
   DC.mergeSettings = merge;
