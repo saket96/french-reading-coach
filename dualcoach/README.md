@@ -58,9 +58,9 @@ No build step and no npm dependencies for the extension runtime.
 | `D` | Next line |
 | `Q` | Toggle auto-pause after each line |
 | `E` | Toggle blur translation |
-| `T` | Open/close the Lingopie-style Script panel (Script + Vocab) |
+| `T` | Show/hide the Script panel (Script + Vocab); also use the **Hide** button |
 | `Alt` + `S` | Hide/show DualCoach subtitles |
-| `Esc` | Close the word card |
+| `Esc` | Close the word card, or hide the Script panel |
 
 ## Brand / icons
 
