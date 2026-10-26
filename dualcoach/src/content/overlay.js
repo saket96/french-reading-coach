@@ -25,6 +25,7 @@
       '<div class="toast" role="status"></div>' +
       "</div>" +
       '<aside class="side">' +
+      '<div class="side-resize" data-act="side-resize" title="Drag to resize video / panel"></div>' +
       '<div class="side-hd"><div class="side-brand"><div class="side-t">DualCoach</div><div class="side-sub"></div></div>' +
       '<button class="side-hide" data-act="side-close" type="button" title="Hide panel (T or Esc)">' +
       DC.SVG.close + "<span>Hide</span></button></div>" +
@@ -36,11 +37,13 @@
       '<div class="pane on" data-pane="script">' +
       '<div class="os-box">' +
       '<div class="os-hd">Add subtitles</div>' +
-      '<p class="os-help">Site has no CC? Search OpenSubtitles (needs API key + account login in Settings), or load .srt / .vtt files.</p>' +
+      '<p class="os-help">Site has no CC? Search OpenSubtitles (API key + account in Settings), load .srt/.vtt, or Translate lines with Chrome’s on-device translator.</p>' +
       '<input class="os-q" type="search" placeholder="Movie or series title (e.g. Rebel Moon S01E01)" spellcheck="false" />' +
       '<div class="os-actions">' +
       '<button class="os-btn" data-os="search" type="button">Search</button>' +
       '<button class="os-btn os-btn-primary" data-os="best" type="button">Load best dual</button>' +
+      '<button class="os-btn os-btn-wide" data-os="add-native" type="button" hidden>Add translation</button>' +
+      '<button class="os-btn os-btn-wide" data-os="mt" type="button" hidden>Translate lines (Chrome)</button>' +
       "</div>" +
       '<div class="os-files">' +
       '<label class="os-file">Learning .srt/.vtt<input type="file" class="os-file-learn" accept=".srt,.vtt,text/vtt,application/x-subrip,text/plain" /></label>' +
@@ -68,11 +71,18 @@
     var osResults = $(".os-results");
     var osFileLearn = $(".os-file-learn");
     var osFileNative = $(".os-file-native");
+    var osAddNativeBtn = $('[data-os="add-native"]');
+    var osMtBtn = $('[data-os="mt"]');
     var layer = $(".layer");
     var sideTab = "script";
     var osHits = [];
     var pendingLearnFile = "";
     var pendingNativeFile = "";
+    var sideWidth = 400;
+    var resizeDrag = null;
+    var lineTranslator = null;
+    var lineTranslatorKey = "";
+    var mtBusy = false;
 
     STOP_EVENTS.forEach(function (t) {
       host.addEventListener(t, function (e) { e.stopPropagation(); }, false);
@@ -170,6 +180,29 @@
       return tokensCache[idx];
     }
 
+    function hasNativeTrack() {
+      for (var i = 0; i < cues.length; i++) {
+        if (cues[i] && cues[i].nat) return true;
+      }
+      return false;
+    }
+
+    function nativeLangLabel() {
+      return DC.langName(DC.settings.nativeLang || meta.nativeLang || "en") || "English";
+    }
+
+    function refreshNativeActions() {
+      var need = cues.length > 0 && !hasNativeTrack();
+      if (osAddNativeBtn) {
+        osAddNativeBtn.hidden = !need;
+        osAddNativeBtn.textContent = "Add " + nativeLangLabel() + " (OpenSubtitles)";
+      }
+      if (osMtBtn) {
+        osMtBtn.hidden = !need;
+        osMtBtn.textContent = "Translate lines → " + nativeLangLabel();
+      }
+    }
+
     function renderCue(idx) {
       curIdx = idx;
       if (idx < 0) { subs.hidden = true; return; }
@@ -182,9 +215,22 @@
       l2Line.hidden = !c.nat;
       chip.textContent = CHIP[meta.nativeKind] || "";
       chip.hidden = !(c.nat && CHIP[meta.nativeKind]);
-      note.textContent = meta.note || "";
-      ntLine.hidden = !meta.note;
+      if (meta.note && !c.nat) {
+        note.innerHTML =
+          esc(meta.note) +
+          ' <button type="button" class="note-act" data-os="add-native">Add ' +
+          esc(nativeLangLabel()) +
+          "</button>" +
+          ' <button type="button" class="note-act" data-os="mt">Translate</button>';
+        ntLine.hidden = false;
+      } else {
+        note.textContent = meta.note || "";
+        ntLine.hidden = !meta.note;
+      }
       subs.hidden = false;
+      if (meta.nativeKind === "mt" && c.src && !c.nat && !mtBusy) {
+        ensureLineTranslated(idx);
+      }
     }
 
     function setSideTab(name) {
@@ -315,7 +361,26 @@
       ensureMounted();
       buildSidebar();
       applySettings();
+      refreshNativeActions();
       startLoop();
+    }
+
+    function mergeNativeText(nativeText, nativeLang, kind, labelSuffix) {
+      if (!cues.length || !nativeText) return false;
+      var natCues = P.parseSubtitleText(nativeText, "os.srt");
+      if (!natCues.length) return false;
+      var learnCues = cues.map(function (c) {
+        return { start: c.start, end: c.end, text: c.src };
+      });
+      var aligned = P.alignCues(learnCues, natCues, false);
+      putCues(aligned, {
+        learnLang: meta.learnLang || DC.settings.learnLang,
+        nativeLang: nativeLang || DC.settings.nativeLang,
+        nativeKind: kind || "opensubtitles",
+        label: (meta.label || "Script") + (labelSuffix || " + translation"),
+        note: ""
+      });
+      return true;
     }
 
     async function applyOsTexts(learnText, nativeText, learnLang, nativeLang, label) {
@@ -342,16 +407,186 @@
       aligned.forEach(function (c, i) {
         c.src = fixed[i];
       });
+      var natLang = nativeLang || DC.settings.nativeLang;
       putCues(aligned, {
         learnLang: learnLang || DC.settings.learnLang,
-        nativeLang: nativeLang || DC.settings.nativeLang,
+        nativeLang: natLang,
         nativeKind: natCues.length ? "opensubtitles" : "",
         label: label || "OpenSubtitles",
-        note: natCues.length ? "" : "Translation track not found — showing one language"
+        note: natCues.length
+          ? ""
+          : "No " + (DC.langName(natLang) || natLang || "translation") + " track — add OpenSubtitles or Translate"
       });
       toast("Loaded " + (label || "OpenSubtitles"), 3500);
-      setOsStatus("Loaded " + aligned.length + " lines", "ok");
+      setOsStatus(
+        natCues.length
+          ? "Loaded " + aligned.length + " dual lines"
+          : "Loaded " + aligned.length + " lines · add " + (DC.langName(natLang) || "translation"),
+        natCues.length ? "ok" : ""
+      );
+      refreshNativeActions();
       return true;
+    }
+
+    async function osAddNative() {
+      if (!cues.length) {
+        setOsStatus("Load a learning-language track first", "err");
+        return;
+      }
+      if (hasNativeTrack()) {
+        setOsStatus("Translation already loaded", "ok");
+        return;
+      }
+      var q = (osQ && osQ.value.trim()) || guessTitle();
+      if (osQ && !osQ.value.trim()) osQ.value = q;
+      if (!q) {
+        setOsStatus("Enter a movie title, then Add translation", "err");
+        return;
+      }
+      var natLang = DC.settings.nativeLang || meta.nativeLang || "en";
+      setOsStatus("Finding " + (DC.langName(natLang) || natLang) + " on OpenSubtitles…");
+      var se = parseSeasonEpisode(q);
+      var res = await DC.send({
+        type: "osLoadNative",
+        query: q,
+        nativeLang: natLang,
+        season: se.season,
+        episode: se.episode
+      });
+      if (!res || res.error || !(res.native && res.native.text)) {
+        setOsStatus(
+          ((res && res.error) || "No OpenSubtitles track") + " — try Translate lines",
+          "err"
+        );
+        refreshNativeActions();
+        return;
+      }
+      if (
+        mergeNativeText(
+          res.native.text,
+          res.nativeLang || natLang,
+          "opensubtitles",
+          " + " + (DC.langName(res.nativeLang || natLang) || "translation")
+        )
+      ) {
+        setOsStatus(
+          "Added " +
+            (DC.langName(res.nativeLang || natLang) || "translation") +
+            (res.remaining != null ? " · " + res.remaining + " downloads left" : ""),
+          "ok"
+        );
+        toast("Added " + (DC.langName(res.nativeLang || natLang) || "translation"), 2500);
+      } else {
+        setOsStatus("Could not parse that translation file", "err");
+      }
+      refreshNativeActions();
+    }
+
+    async function getLineTranslator(src, tgt, onProgress) {
+      if (!("Translator" in self)) throw new Error("unavailable");
+      var key = src + ">" + tgt;
+      if (lineTranslator && lineTranslatorKey === key) return lineTranslator;
+      var avail = await self.Translator.availability({ sourceLanguage: src, targetLanguage: tgt });
+      if (["available", "downloadable", "downloading"].indexOf(avail) === -1) {
+        throw new Error("unavailable");
+      }
+      lineTranslatorKey = key;
+      lineTranslator = await self.Translator.create({
+        sourceLanguage: src,
+        targetLanguage: tgt,
+        monitor: function (m) {
+          m.addEventListener("downloadprogress", function (ev) {
+            if (onProgress) onProgress(ev.loaded || 0);
+          });
+        }
+      });
+      return lineTranslator;
+    }
+
+    async function ensureLineTranslated(idx) {
+      var c = cues[idx];
+      if (!c || c.nat || !c.src) return;
+      var src = P.baseLang(meta.learnLang || DC.settings.learnLang);
+      var tgt = P.baseLang(meta.nativeLang || DC.settings.nativeLang || "en");
+      if (!src || !tgt || P.sameLang(src, tgt)) return;
+      try {
+        var t = await getLineTranslator(src, tgt);
+        var out = await t.translate(c.src);
+        if (!cues[idx] || cues[idx] !== c) return;
+        c.nat = out;
+        if (curIdx === idx) renderCue(idx);
+        if (root.classList.contains("side-open")) buildSidebar();
+      } catch (_) {
+        /* ignore single-line failures */
+      }
+    }
+
+    async function osMachineTranslate() {
+      if (!cues.length) {
+        setOsStatus("Load a learning-language track first", "err");
+        return;
+      }
+      if (hasNativeTrack() && meta.nativeKind !== "mt") {
+        setOsStatus("A subtitle translation is already loaded", "ok");
+        return;
+      }
+      var src = P.baseLang(meta.learnLang || DC.settings.learnLang);
+      var tgt = P.baseLang(DC.settings.nativeLang || meta.nativeLang || "en");
+      if (!src || src === "auto" || src === "und") src = "fr";
+      if (!tgt) tgt = "en";
+      if (P.sameLang(src, tgt)) {
+        setOsStatus("Learning and translation languages are the same", "err");
+        return;
+      }
+      if (!("Translator" in self)) {
+        setOsStatus(
+          "Chrome on-device Translator not available — click an EN result above, or update Chrome",
+          "err"
+        );
+        return;
+      }
+      mtBusy = true;
+      setOsStatus("Translating lines with Chrome (on-device)…");
+      try {
+        var t = await getLineTranslator(src, tgt, function (p) {
+          setOsStatus("Downloading translation model… " + Math.round(p * 100) + "%");
+        });
+        var done = 0;
+        var total = cues.length;
+        // Translate in small batches so the UI stays responsive
+        for (var i = 0; i < cues.length; i++) {
+          if (!cues[i].nat && cues[i].src) {
+            try {
+              cues[i].nat = await t.translate(cues[i].src);
+            } catch (_) {
+              /* skip line */
+            }
+          }
+          done++;
+          if (done % 25 === 0 || done === total) {
+            setOsStatus("Translated " + done + " / " + total + " lines…");
+          }
+        }
+        meta.nativeLang = tgt;
+        meta.nativeKind = "mt";
+        meta.note = "";
+        meta.label =
+          (DC.langName(src) || src) + " + " + (DC.langName(tgt) || tgt) + " (Chrome translate)";
+        buildSidebar();
+        if (curIdx >= 0) renderCue(curIdx);
+        setOsStatus("Translated " + total + " lines on-device", "ok");
+        toast("Showing Chrome translation under each line", 3000);
+      } catch (e) {
+        var msg = (e && e.message) || "";
+        setOsStatus(
+          msg === "unavailable"
+            ? "This language pair isn’t supported by Chrome Translator — click an EN OpenSubtitles result"
+            : "Translation failed — try an EN file from the search results",
+          "err"
+        );
+      }
+      mtBusy = false;
+      refreshNativeActions();
     }
 
     async function osLoadBest() {
@@ -363,10 +598,16 @@
       }
       setOsStatus("Downloading best dual tracks…");
       var se = parseSeasonEpisode(q);
+      var learn =
+        DC.settings.learnLang === "auto"
+          ? meta.learnLang && meta.learnLang !== "auto"
+            ? meta.learnLang
+            : "fr"
+          : DC.settings.learnLang;
       var res = await DC.send({
         type: "osLoadBest",
         query: q,
-        learnLang: DC.settings.learnLang,
+        learnLang: learn,
         nativeLang: DC.settings.nativeLang,
         season: se.season,
         episode: se.episode
@@ -386,7 +627,18 @@
         res.nativeLang,
         label
       );
-      if (res.remaining != null) setOsStatus("Loaded · " + res.remaining + " downloads left today", "ok");
+      if (!res.native) {
+        setOsStatus(
+          "Loaded " +
+            (DC.langName(res.learnLang) || res.learnLang) +
+            " only — Add " +
+            nativeLangLabel() +
+            " or Translate lines",
+          ""
+        );
+      } else if (res.remaining != null) {
+        setOsStatus("Loaded · " + res.remaining + " downloads left today", "ok");
+      }
     }
 
     function readFileAsText(file) {
@@ -441,28 +693,21 @@
       }
       var learnLang = lang || DC.settings.learnLang;
       var nativeLang = DC.settings.nativeLang;
-      // If user clicked a native-lang file while we already have learn cues, keep learn and add nat
-      if (
-        cues.length &&
-        lang &&
-        P.sameLang(lang, nativeLang) &&
-        meta.learnLang &&
-        !P.sameLang(lang, meta.learnLang)
-      ) {
-        var learnCues = cues.map(function (c) {
-          return { start: c.start, end: c.end, text: c.src };
-        });
-        var natCues = P.parseSubtitleText(res.text, "os.srt");
-        var aligned = P.alignCues(learnCues, natCues, false);
-        putCues(aligned, {
-          learnLang: meta.learnLang || learnLang,
-          nativeLang: nativeLang,
-          nativeKind: "opensubtitles",
-          label: (meta.label || "Script") + " + OpenSubtitles",
-          note: ""
-        });
-        setOsStatus("Added " + (DC.langName(lang) || lang) + " translation", "ok");
-        return;
+      // Any non-learning language clicked while cues exist → add as translation (EN, etc.)
+      if (cues.length && lang && meta.learnLang && !P.sameLang(lang, meta.learnLang)) {
+        if (
+          mergeNativeText(
+            res.text,
+            lang || nativeLang,
+            "opensubtitles",
+            " + " + (DC.langName(lang) || lang)
+          )
+        ) {
+          setOsStatus("Added " + (DC.langName(lang) || lang) + " translation", "ok");
+          toast("Added " + (DC.langName(lang) || lang), 2500);
+          refreshNativeActions();
+          return;
+        }
       }
       await applyOsTexts(
         res.text,
@@ -568,6 +813,24 @@
       }
     }
 
+    function clampSideWidth(px, hostW) {
+      var max = Math.max(280, Math.floor((hostW || 800) * 0.7));
+      return Math.max(260, Math.min(max, Math.round(px)));
+    }
+
+    function applySideWidth(px, persist) {
+      var hostW = (host.parentElement && host.parentElement.clientWidth) || window.innerWidth || 800;
+      sideWidth = clampSideWidth(px, hostW);
+      root.style.setProperty("--side-w", sideWidth + "px");
+      if (persist) {
+        try {
+          chrome.storage.local.set({ dcSideWidth: sideWidth });
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+
     function applySettings() {
       var s = DC.settings;
       root.classList.toggle("blur-nat", !!s.blurNative);
@@ -579,9 +842,10 @@
       sideBtn.title = s.showSidebar ? "Hide Script panel (T)" : "Show Script panel (T)";
       root.style.setProperty("--bottom", adapter.bottom || "10%");
       root.style.setProperty("--side-bottom", adapter.sideBottom || "0px");
-      root.style.setProperty("--side-w", "400px");
+      applySideWidth(sideWidth, false);
       applyFont();
       syncVisibility();
+      refreshNativeActions();
       if (s.showSidebar) {
         lastUserScroll = 0;
         curRow = -2;
@@ -760,6 +1024,15 @@
       if (e.button !== 0) return;
       var t = e.target;
       if (DC.card.contains(t)) return;
+      var resizeHandle = t.closest && t.closest("[data-act='side-resize']");
+      if (resizeHandle) {
+        e.preventDefault();
+        e.stopPropagation();
+        var hostW = (host.parentElement && host.parentElement.clientWidth) || window.innerWidth || 800;
+        resizeDrag = { startX: e.clientX, startW: sideWidth, hostW: hostW };
+        root.classList.add("resizing");
+        return;
+      }
       var w = t.closest && t.closest(".w");
       if (w) {
         var line = lineOf(w);
@@ -807,6 +1080,8 @@
         if (act === "search") osSearch();
         else if (act === "best") osLoadBest();
         else if (act === "files") osLoadLocalFiles();
+        else if (act === "add-native") osAddNative();
+        else if (act === "mt") osMachineTranslate();
         return;
       }
       var osHit = t.closest && t.closest("[data-os-file]");
@@ -831,6 +1106,7 @@
       var act = t.closest && t.closest("[data-act]");
       if (act) {
         var name = act.getAttribute("data-act");
+        if (name === "side-resize") return;
         if (name === "side" || name === "side-close") {
           toggleSetting("showSidebar", "Script panel");
         }
@@ -840,9 +1116,23 @@
       if (row) seekTo(Number(row.getAttribute("data-cue")));
     }
 
+    function onResizeMove(e) {
+      if (!resizeDrag) return;
+      var delta = resizeDrag.startX - e.clientX;
+      applySideWidth(resizeDrag.startW + delta, false);
+    }
+    function onResizeUp() {
+      if (!resizeDrag) return;
+      resizeDrag = null;
+      root.classList.remove("resizing");
+      applySideWidth(sideWidth, true);
+    }
+
     shadow.addEventListener("mousedown", onMouseDown);
     shadow.addEventListener("mousemove", onMouseMove);
     shadow.addEventListener("mouseup", function (e) { if (e.button === 0) finishDrag(); });
+    window.addEventListener("mousemove", onResizeMove, true);
+    window.addEventListener("mouseup", onResizeUp, true);
     window.addEventListener("mouseup", finishDrag, true);
     shadow.addEventListener("click", onClick);
     list.addEventListener("wheel", function () { lastUserScroll = Date.now(); }, { passive: true });
@@ -1036,6 +1326,15 @@
         };
       }
     };
+    try {
+      chrome.storage.local.get("dcSideWidth", function (got) {
+        var w = got && Number(got.dcSideWidth);
+        if (w && isFinite(w)) sideWidth = w;
+        applySideWidth(sideWidth, false);
+      });
+    } catch (_) {
+      /* ignore */
+    }
     ensureMounted();
     applySettings();
     return ctl;

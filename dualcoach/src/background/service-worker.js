@@ -146,6 +146,31 @@ async function doContext({ text, context, lang, native }) {
   }
 }
 
+/** Search one OpenSubtitles language and download the top hit. */
+async function osPickAndDownload(session, apiKey, query, lang, season, episode) {
+  const { results } = await searchSubtitles({
+    apiKey,
+    query,
+    languages: [lang],
+    season,
+    episode,
+    token: session.token,
+    baseUrl: session.baseUrl
+  });
+  const hit =
+    results.find((r) => r.language === lang) ||
+    results.find((r) => baseLang(r.language) === lang) ||
+    null;
+  if (!hit) return { hit: null, file: null, results };
+  const file = await downloadSubtitle({
+    apiKey,
+    fileId: hit.fileId,
+    token: session.token,
+    baseUrl: session.baseUrl
+  });
+  return { hit, file, results };
+}
+
 // ---- router ----
 const handlers = {
   async lookup(msg) {
@@ -303,7 +328,8 @@ const handlers = {
     }
   },
 
-  /** Search + download best learn (+ optional native) tracks in one step. */
+  /** Search + download best learn (+ optional native) tracks in one step.
+   *  Languages are searched separately — a combined fr,en query often returns only FR. */
   async osLoadBest(msg) {
     const apiKey = await getApiKey("opensubtitles");
     if (!apiKey) return { error: "Add an OpenSubtitles API key in Settings" };
@@ -311,50 +337,89 @@ const handlers = {
       return { error: "Permission to contact api.opensubtitles.com was not granted" };
     }
     const s = await settings();
-    const learn = baseLang(msg.learnLang || s.learnLang) || "fr";
+    // "auto" is not an OpenSubtitles language — default learning track to French for this coach.
+    const learnRaw = msg.learnLang || s.learnLang;
+    const learn = (learnRaw === "auto" ? "fr" : baseLang(learnRaw)) || "fr";
     const native = baseLang(msg.nativeLang || s.nativeLang) || "en";
     try {
       const session = await ensureOsToken(apiKey);
-      const { results } = await searchSubtitles({
+      const learnPack = await osPickAndDownload(
+        session,
         apiKey,
-        query: msg.query,
-        languages: learn === native ? [learn] : [learn, native],
-        season: msg.season,
-        episode: msg.episode,
-        token: session.token,
-        baseUrl: session.baseUrl
-      });
-      const pick = (lang) =>
-        results.find((r) => r.language === lang) || results.find((r) => baseLang(r.language) === lang);
-      const learnHit = pick(learn);
-      if (!learnHit) return { error: "No " + (languageName(learn) || learn) + " subtitles found" };
-      const learnFile = await downloadSubtitle({
-        apiKey,
-        fileId: learnHit.fileId,
-        token: session.token,
-        baseUrl: session.baseUrl
-      });
+        msg.query,
+        learn,
+        msg.season,
+        msg.episode
+      );
+      if (!learnPack.hit) {
+        return { error: "No " + (languageName(learn) || learn) + " subtitles found" };
+      }
       let nativeFile = null;
       let nativeHit = null;
       if (native && native !== learn) {
-        nativeHit = pick(native);
-        if (nativeHit) {
-          nativeFile = await downloadSubtitle({
-            apiKey,
-            fileId: nativeHit.fileId,
-            token: session.token,
-            baseUrl: session.baseUrl
-          });
-        }
+        const natPack = await osPickAndDownload(
+          session,
+          apiKey,
+          msg.query,
+          native,
+          msg.season,
+          msg.episode
+        );
+        nativeHit = natPack.hit;
+        nativeFile = natPack.file;
       }
       return {
         learnLang: learn,
         nativeLang: native,
-        learn: { text: learnFile.text, fileName: learnFile.fileName, meta: learnHit },
+        learn: {
+          text: learnPack.file.text,
+          fileName: learnPack.file.fileName,
+          meta: learnPack.hit
+        },
         native: nativeFile
           ? { text: nativeFile.text, fileName: nativeFile.fileName, meta: nativeHit }
           : null,
-        remaining: nativeFile && nativeFile.remaining != null ? nativeFile.remaining : learnFile.remaining
+        remaining:
+          nativeFile && nativeFile.remaining != null
+            ? nativeFile.remaining
+            : learnPack.file.remaining
+      };
+    } catch (e) {
+      return { error: e && e.message ? e.message : "OpenSubtitles load failed" };
+    }
+  },
+
+  /** Download only the translation (native) track for a title — for pairing with existing cues. */
+  async osLoadNative(msg) {
+    const apiKey = await getApiKey("opensubtitles");
+    if (!apiKey) return { error: "Add an OpenSubtitles API key in Settings" };
+    if (!(await hasProviderAccess("opensubtitles"))) {
+      return { error: "Permission to contact api.opensubtitles.com was not granted" };
+    }
+    const s = await settings();
+    const native = baseLang(msg.nativeLang || s.nativeLang) || "en";
+    try {
+      const session = await ensureOsToken(apiKey);
+      const pack = await osPickAndDownload(
+        session,
+        apiKey,
+        msg.query,
+        native,
+        msg.season,
+        msg.episode
+      );
+      if (!pack.hit) {
+        return {
+          error:
+            "No " +
+            (languageName(native) || native) +
+            " subtitles found on OpenSubtitles for that title"
+        };
+      }
+      return {
+        nativeLang: native,
+        native: { text: pack.file.text, fileName: pack.file.fileName, meta: pack.hit },
+        remaining: pack.file.remaining
       };
     } catch (e) {
       return { error: e && e.message ? e.message : "OpenSubtitles load failed" };

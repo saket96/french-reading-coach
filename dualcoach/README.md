@@ -22,9 +22,12 @@ Same visual language as the reading coach: cream surfaces, forest-green accents 
 
 **When a site has no captions**, open the Script panel (`T` or the Script button on the player) and use one of:
 
-1. **OpenSubtitles** — Settings → API key **and** username/password (downloads need login JWT; otherwise you see `missing token`), then Script → Search / Load best dual
-2. **Local files** — pick learning + translation `.srt` / `.vtt` from your computer → Load files
-3. **Player CC** — turn captions on once so DualCoach can sniff the network file
+1. **OpenSubtitles** — Settings → API key **and** username/password (downloads need login JWT; otherwise you see `missing token`), then Script → **Load best dual**, or click an **EN** result after French is loaded
+2. **Translate lines** — if no English file exists, use **Translate lines (Chrome)** (on-device Translator) under the learning track
+3. **Local files** — pick learning + translation `.srt` / `.vtt` from your computer → Load files
+4. **Player CC** — turn captions on once so DualCoach can sniff the network file
+
+Drag the left edge of the Script panel to resize video vs sidebar.
 
 On embed/movie sites the DualCoach UI lives **on the video player** (often inside an iframe), not in the browser chrome.
 
