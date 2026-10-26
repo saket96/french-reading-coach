@@ -290,7 +290,13 @@ const handlers = {
       return { error: "Permission to contact api.opensubtitles.com was not granted" };
     }
     try {
-      const file = await downloadSubtitle({ apiKey, fileId: msg.fileId });
+      const session = await ensureOsToken(apiKey);
+      const file = await downloadSubtitle({
+        apiKey,
+        fileId: msg.fileId,
+        token: session.token,
+        baseUrl: session.baseUrl
+      });
       return { text: file.text, fileName: file.fileName, remaining: file.remaining };
     } catch (e) {
       return { error: e && e.message ? e.message : "OpenSubtitles download failed" };
@@ -308,23 +314,38 @@ const handlers = {
     const learn = baseLang(msg.learnLang || s.learnLang) || "fr";
     const native = baseLang(msg.nativeLang || s.nativeLang) || "en";
     try {
+      const session = await ensureOsToken(apiKey);
       const { results } = await searchSubtitles({
         apiKey,
         query: msg.query,
         languages: learn === native ? [learn] : [learn, native],
         season: msg.season,
-        episode: msg.episode
+        episode: msg.episode,
+        token: session.token,
+        baseUrl: session.baseUrl
       });
       const pick = (lang) =>
         results.find((r) => r.language === lang) || results.find((r) => baseLang(r.language) === lang);
       const learnHit = pick(learn);
       if (!learnHit) return { error: "No " + (languageName(learn) || learn) + " subtitles found" };
-      const learnFile = await downloadSubtitle({ apiKey, fileId: learnHit.fileId });
+      const learnFile = await downloadSubtitle({
+        apiKey,
+        fileId: learnHit.fileId,
+        token: session.token,
+        baseUrl: session.baseUrl
+      });
       let nativeFile = null;
       let nativeHit = null;
       if (native && native !== learn) {
         nativeHit = pick(native);
-        if (nativeHit) nativeFile = await downloadSubtitle({ apiKey, fileId: nativeHit.fileId });
+        if (nativeHit) {
+          nativeFile = await downloadSubtitle({
+            apiKey,
+            fileId: nativeHit.fileId,
+            token: session.token,
+            baseUrl: session.baseUrl
+          });
+        }
       }
       return {
         learnLang: learn,
@@ -337,6 +358,41 @@ const handlers = {
       };
     } catch (e) {
       return { error: e && e.message ? e.message : "OpenSubtitles load failed" };
+    }
+  },
+
+  async osSaveCredentials(msg) {
+    // msg.password undefined → keep stored password; "" clears it.
+    await setStoredOsCredentials(msg.username, msg.password);
+    return { ok: true };
+  },
+
+  async osGetCredentials() {
+    const auth = await getStoredOsAuth();
+    return { username: auth.username, hasPassword: !!auth.password, hasToken: !!auth.token };
+  },
+
+  async osLogin(msg) {
+    const apiKey = msg.apiKey || (await getApiKey("opensubtitles"));
+    if (!apiKey) return { ok: false, error: "Enter an API key first" };
+    try {
+      const hasUser = msg.username != null && String(msg.username).trim() !== "";
+      const hasPass = msg.password != null && String(msg.password) !== "";
+      if (hasUser || hasPass) {
+        await setStoredOsCredentials(
+          hasUser ? msg.username : (await getStoredOsAuth()).username,
+          hasPass ? msg.password : undefined
+        );
+      }
+      const auth = await getStoredOsAuth();
+      const session = await loginOpenSubtitles({
+        apiKey,
+        username: (msg.username && String(msg.username).trim()) || auth.username,
+        password: (msg.password && String(msg.password)) || auth.password
+      });
+      return { ok: true, allowedDownloads: session.allowedDownloads };
+    } catch (e) {
+      return { ok: false, error: e && e.message ? e.message : "Login failed" };
     }
   },
 

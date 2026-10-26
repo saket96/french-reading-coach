@@ -237,6 +237,21 @@ function bindLlm() {
 
 async function renderOsKey() {
   $("opt-os-key").value = await getApiKey("opensubtitles");
+  const auth = await sendMsg({ type: "osGetCredentials" });
+  if (auth && !$("opt-os-user").value) {
+    $("opt-os-user").value = auth.username || "";
+  }
+  // Never rehydrate the password into the field; show a hint if one is stored.
+  if (auth && auth.hasPassword && !$("opt-os-pass").value) {
+    $("opt-os-pass").placeholder = "•••••••• (saved)";
+  }
+  if (auth && auth.hasToken) {
+    const out = $("os-test-result");
+    if (out && !out.textContent) {
+      out.className = "test-result is-ok";
+      out.textContent = "Logged in · download token cached";
+    }
+  }
 }
 
 /** Test OpenSubtitles from the options page (avoids SW dying after permissions.request). */
@@ -277,11 +292,29 @@ async function probeOpenSubtitlesInPage(apiKey) {
   return { ok: true, count };
 }
 
+const saveOsCredentials = debounce(async () => {
+  const username = $("opt-os-user").value.trim();
+  const password = $("opt-os-pass").value;
+  // Only send password when the user typed one (empty keeps the stored value).
+  await sendMsg({
+    type: "osSaveCredentials",
+    username,
+    password: password || undefined
+  });
+}, 400);
+
 function bindOpenSubtitles() {
   $("opt-os-key").addEventListener("input", (e) => saveApiKey("opensubtitles", e.target.value));
   $("opt-os-key").addEventListener("change", (e) => {
     if (e.target.value.trim()) requestAccess("opensubtitles");
   });
+  $("opt-os-user").addEventListener("input", () => saveOsCredentials());
+  $("opt-os-user").addEventListener("change", () => saveOsCredentials());
+  $("opt-os-pass").addEventListener("input", () => {
+    $("opt-os-pass").placeholder = "Account password";
+    saveOsCredentials();
+  });
+  $("opt-os-pass").addEventListener("change", () => saveOsCredentials());
   $("btn-os-key-toggle").addEventListener("click", () => {
     const input = $("opt-os-key");
     const show = input.type === "password";
@@ -293,6 +326,8 @@ function bindOpenSubtitles() {
     const out = $("os-test-result");
     const btn = $("btn-os-test");
     const apiKey = $("opt-os-key").value.trim();
+    const username = $("opt-os-user").value.trim();
+    const password = $("opt-os-pass").value;
     if (!apiKey) {
       out.className = "test-result is-error";
       out.textContent = "Enter an API key first";
@@ -309,27 +344,56 @@ function bindOpenSubtitles() {
       return;
     }
     await setApiKey("opensubtitles", apiKey);
-    out.textContent = "Testing…";
+    if (username || password) {
+      await sendMsg({
+        type: "osSaveCredentials",
+        username,
+        password: password || undefined
+      });
+    }
+    out.textContent = "Testing search…";
+    let searchCount = null;
+    let searchError = "";
     try {
       // Prefer in-page fetch — granting optional host permission can restart the service worker
       // and close an in-flight sendMessage port ("message port closed before a response…").
       const res = await probeOpenSubtitlesInPage(apiKey);
-      out.className = "test-result is-ok";
-      out.textContent = `Connected · found ${Number(res.count) || 0} results for “matrix”`;
+      searchCount = Number(res.count) || 0;
     } catch (e) {
-      // Fallback via service worker once it is awake again
       await new Promise((r) => setTimeout(r, 250));
       const res = await sendMsg({ type: "osTest", apiKey });
       if (res && res.ok) {
-        out.className = "test-result is-ok";
-        out.textContent = `Connected · found ${Number(res.count) || 0} results for “matrix”`;
+        searchCount = Number(res.count) || 0;
       } else {
-        out.className = "test-result is-error";
-        out.textContent =
+        searchError =
           (res && (res.error || res.message)) ||
           (e && e.message) ||
           "Connection failed";
       }
+    }
+    if (searchError) {
+      out.className = "test-result is-error";
+      out.textContent = searchError;
+      btn.disabled = false;
+      return;
+    }
+    out.textContent = `Search OK · ${searchCount} results · logging in…`;
+    const login = await sendMsg({
+      type: "osLogin",
+      apiKey,
+      username,
+      password: password || undefined
+    });
+    if (login && login.ok) {
+      out.className = "test-result is-ok";
+      const quota =
+        login.allowedDownloads != null ? ` · ${login.allowedDownloads} downloads/day` : "";
+      out.textContent = `Connected · search + login OK${quota}`;
+    } else {
+      out.className = "test-result is-error";
+      out.textContent =
+        `Search OK (${searchCount} results), but login failed: ` +
+        ((login && login.error) || "add username + password to download");
     }
     btn.disabled = false;
   });

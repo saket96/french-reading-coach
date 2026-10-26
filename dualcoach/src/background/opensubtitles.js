@@ -88,17 +88,24 @@ export async function getStoredOsAuth() {
   };
 }
 
+/**
+ * Persist OpenSubtitles account credentials.
+ * Pass password as undefined to keep the stored password; pass "" to clear it.
+ */
 export async function setStoredOsCredentials(username, password) {
   const u = String(username || "").trim();
-  const p = String(password || "");
   const patch = {};
+  const remove = [TOKEN_KEY, BASE_KEY];
   if (u) patch[USER_KEY] = u;
-  else await chrome.storage.local.remove(USER_KEY);
-  if (p) patch[PASS_KEY] = p;
-  else await chrome.storage.local.remove(PASS_KEY);
+  else remove.push(USER_KEY);
+  if (password !== undefined && password !== null) {
+    const p = String(password);
+    if (p) patch[PASS_KEY] = p;
+    else remove.push(PASS_KEY);
+  }
   if (Object.keys(patch).length) await chrome.storage.local.set(patch);
-  // Force re-login next time
-  await chrome.storage.local.remove([TOKEN_KEY, BASE_KEY]);
+  // Force re-login next time (credentials changed or username cleared)
+  await chrome.storage.local.remove(remove);
 }
 
 async function saveSession(token, baseUrl) {
