@@ -138,20 +138,35 @@
         <h2 class="card-title">OpenSubtitles</h2>
         <p class="note muted">
           Optional fallback for movie sites when the player has no captions.
-          Search by film or series title from the Script panel.
-          Get a free API key at
-          <a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noreferrer">opensubtitles.com/consumers</a>
-          — your key stays in this browser.
+          Search needs an API key;
+          <strong>downloads need your OpenSubtitles username + password</strong>
+          (the API returns “missing token” without a login JWT).
+          Key:
+          <a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noreferrer">consumers</a>
+          · Account:
+          <a href="https://www.opensubtitles.com" target="_blank" rel="noreferrer">opensubtitles.com</a>
         </p>
         <div class="field">
           <label class="field-label" for="opt-os-key">API key</label>
           <div class="row">
             <input type="password" id="opt-os-key" class="control" autocomplete="off" spellcheck="false" placeholder="Paste your OpenSubtitles API key" />
             <button type="button" id="btn-os-key-toggle" class="btn" aria-pressed="false">Show</button>
-            <button type="button" id="btn-os-test" class="btn btn-primary">Test</button>
           </div>
-          <div id="os-test-result" class="test-result" role="status" aria-live="polite"></div>
         </div>
+        <div class="lang-grid">
+          <div class="field">
+            <label class="field-label" for="opt-os-user">Username</label>
+            <input type="text" id="opt-os-user" class="control" autocomplete="username" spellcheck="false" placeholder="opensubtitles.com username" />
+          </div>
+          <div class="field">
+            <label class="field-label" for="opt-os-pass">Password</label>
+            <input type="password" id="opt-os-pass" class="control" autocomplete="current-password" spellcheck="false" placeholder="Account password" />
+          </div>
+        </div>
+        <div class="row">
+          <button type="button" id="btn-os-test" class="btn btn-primary">Test search + login</button>
+        </div>
+        <div id="os-test-result" class="test-result" role="status" aria-live="polite"></div>
       </section>
 
       <!-- AI explanations -->

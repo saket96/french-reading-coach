@@ -1,8 +1,20 @@
 // OpenSubtitles.com REST API (https://api.opensubtitles.com/api/v1).
-// User supplies their own API key (free consumer key from opensubtitles.com).
+// Search works with Api-Key alone; /download requires Api-Key + Bearer JWT from /login.
 
-const API = "https://api.opensubtitles.com/api/v1";
+const API_DEFAULT = "https://api.opensubtitles.com/api/v1";
 const APP_NAME = "DualCoach";
+const TOKEN_KEY = "opensubtitlesToken";
+const BASE_KEY = "opensubtitlesBaseUrl";
+const USER_KEY = "opensubtitlesUsername";
+const PASS_KEY = "opensubtitlesPassword";
+
+function appAgent() {
+  try {
+    return `${APP_NAME} v${chrome.runtime.getManifest().version}`;
+  } catch (_) {
+    return `${APP_NAME} v0`;
+  }
+}
 
 function baseLang(code) {
   const c = String(code || "")
@@ -24,17 +36,24 @@ function canonicalQuery(params) {
     .join("&");
 }
 
-async function osFetch(path, { apiKey, method = "GET", body, token } = {}) {
+function apiRoot(baseHost) {
+  const host = String(baseHost || "api.opensubtitles.com").replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return `https://${host}/api/v1`;
+}
+
+async function osFetch(path, { apiKey, method = "GET", body, token, baseUrl } = {}) {
   if (!apiKey) throw new Error("Add an OpenSubtitles API key in Settings");
   const headers = {
     Accept: "application/json",
     "Api-Key": apiKey,
     "Content-Type": "application/json",
-    // Chrome forbids overriding User-Agent; OpenSubtitles accepts this app header.
-    "X-User-Agent": `${APP_NAME} ${chrome.runtime.getManifest().version}`
+    // Chrome forbids overriding User-Agent; OpenSubtitles also reads these.
+    "X-User-Agent": appAgent(),
+    "User-Agent": appAgent()
   };
   if (token) headers.Authorization = "Bearer " + token;
-  const res = await fetch(API + path, {
+  const root = apiRoot(baseUrl);
+  const res = await fetch(root + path, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -51,16 +70,93 @@ async function osFetch(path, { apiKey, method = "GET", body, token } = {}) {
     const msg =
       (data && (data.message || data.error || data.errors)) ||
       "OpenSubtitles HTTP " + res.status;
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    err.status = res.status;
+    err.data = data;
+    throw err;
   }
   return data;
+}
+
+export async function getStoredOsAuth() {
+  const got = await chrome.storage.local.get([TOKEN_KEY, BASE_KEY, USER_KEY, PASS_KEY]);
+  return {
+    token: (got[TOKEN_KEY] || "").trim(),
+    baseUrl: (got[BASE_KEY] || "").trim(),
+    username: (got[USER_KEY] || "").trim(),
+    password: got[PASS_KEY] ? String(got[PASS_KEY]) : ""
+  };
+}
+
+export async function setStoredOsCredentials(username, password) {
+  const u = String(username || "").trim();
+  const p = String(password || "");
+  const patch = {};
+  if (u) patch[USER_KEY] = u;
+  else await chrome.storage.local.remove(USER_KEY);
+  if (p) patch[PASS_KEY] = p;
+  else await chrome.storage.local.remove(PASS_KEY);
+  if (Object.keys(patch).length) await chrome.storage.local.set(patch);
+  // Force re-login next time
+  await chrome.storage.local.remove([TOKEN_KEY, BASE_KEY]);
+}
+
+async function saveSession(token, baseUrl) {
+  await chrome.storage.local.set({
+    [TOKEN_KEY]: token,
+    [BASE_KEY]: baseUrl || "api.opensubtitles.com"
+  });
+}
+
+export async function clearOsSession() {
+  await chrome.storage.local.remove([TOKEN_KEY, BASE_KEY]);
+}
+
+/** POST /login — required before /download (API returns "missing token" without Bearer). */
+export async function loginOpenSubtitles({ apiKey, username, password }) {
+  const user = String(username || "").trim();
+  const pass = String(password || "");
+  if (!user || !pass) {
+    throw new Error("Add your OpenSubtitles username and password in Settings (needed to download)");
+  }
+  const data = await osFetch("/login", {
+    apiKey,
+    method: "POST",
+    body: { username: user, password: pass }
+  });
+  const token = data && data.token;
+  if (!token) throw new Error("OpenSubtitles login did not return a token");
+  const baseUrl = (data.base_url || "api.opensubtitles.com").replace(/^https?:\/\//, "");
+  await saveSession(token, baseUrl);
+  return {
+    token,
+    baseUrl,
+    allowedDownloads: data.user && data.user.allowed_downloads
+  };
+}
+
+/** Ensure we have a Bearer token; login if needed. */
+export async function ensureOsToken(apiKey) {
+  const auth = await getStoredOsAuth();
+  if (auth.token) return auth;
+  if (!auth.username || !auth.password) {
+    throw new Error(
+      "missing token — add OpenSubtitles username + password in Settings, then retry (downloads need login)"
+    );
+  }
+  const session = await loginOpenSubtitles({
+    apiKey,
+    username: auth.username,
+    password: auth.password
+  });
+  return { token: session.token, baseUrl: session.baseUrl, username: auth.username, password: auth.password };
 }
 
 /**
  * Search subtitles by movie/series title.
  * @returns {{ results: Array<{id,fileId,language,title,release,downloads,hearingImpaired}> }}
  */
-export async function searchSubtitles({ apiKey, query, languages, season, episode, token }) {
+export async function searchSubtitles({ apiKey, query, languages, season, episode, token, baseUrl }) {
   const q = String(query || "").trim();
   if (q.length < 2) throw new Error("Enter a movie or series title");
 
@@ -79,7 +175,7 @@ export async function searchSubtitles({ apiKey, query, languages, season, episod
   if (season != null && season !== "") params.season_number = String(season);
   if (episode != null && episode !== "") params.episode_number = String(episode);
 
-  const data = await osFetch("/subtitles?" + canonicalQuery(params), { apiKey, token });
+  const data = await osFetch("/subtitles?" + canonicalQuery(params), { apiKey, token, baseUrl });
   const rows = Array.isArray(data && data.data) ? data.data : [];
   const results = [];
   for (const row of rows) {
@@ -104,27 +200,55 @@ export async function searchSubtitles({ apiKey, query, languages, season, episod
   return { results, total: Number(data && data.total_count) || results.length };
 }
 
-/** Request a temporary download URL, then fetch subtitle file text. */
-export async function downloadSubtitle({ apiKey, fileId, token }) {
+/** Request a temporary download URL, then fetch subtitle file text. Needs Bearer token. */
+export async function downloadSubtitle({ apiKey, fileId, token, baseUrl }) {
   const id = Number(fileId);
   if (!id) throw new Error("Missing subtitle file id");
-  const meta = await osFetch("/download", {
-    apiKey,
-    token,
-    method: "POST",
-    body: { file_id: id }
-  });
+
+  let authToken = token;
+  let host = baseUrl;
+  if (!authToken) {
+    const session = await ensureOsToken(apiKey);
+    authToken = session.token;
+    host = session.baseUrl;
+  }
+
+  let meta;
+  try {
+    meta = await osFetch("/download", {
+      apiKey,
+      token: authToken,
+      baseUrl: host,
+      method: "POST",
+      body: { file_id: id }
+    });
+  } catch (e) {
+    const msg = String((e && e.message) || "");
+    // Token expired / missing — clear and retry login once
+    if (/token|unauthorized|401|403/i.test(msg)) {
+      await clearOsSession();
+      const session = await ensureOsToken(apiKey);
+      meta = await osFetch("/download", {
+        apiKey,
+        token: session.token,
+        baseUrl: session.baseUrl,
+        method: "POST",
+        body: { file_id: id }
+      });
+    } else {
+      throw e;
+    }
+  }
+
   const link = meta && meta.link;
   if (!link) throw new Error("OpenSubtitles did not return a download link (quota?)");
   const res = await fetch(link, { redirect: "follow" });
   if (!res.ok) throw new Error("Subtitle download failed (" + res.status + ")");
   const buf = await res.arrayBuffer();
-  // Try UTF-8, fall back to latin1 for older SRT files
   let text = new TextDecoder("utf-8").decode(buf);
   if (text.includes("\uFFFD")) {
     text = new TextDecoder("iso-8859-1").decode(buf);
   }
-  // Strip UTF-8 BOM
   text = text.replace(/^\uFEFF/, "");
   return {
     text,
@@ -136,7 +260,23 @@ export async function downloadSubtitle({ apiKey, fileId, token }) {
 
 export async function testOpenSubtitles(apiKey) {
   const out = await searchSubtitles({ apiKey, query: "matrix", languages: ["en"] });
-  return { ok: true, count: out.results.length };
+  let loginOk = false;
+  let loginError = "";
+  try {
+    const auth = await getStoredOsAuth();
+    if (auth.username && auth.password) {
+      await loginOpenSubtitles({ apiKey, username: auth.username, password: auth.password });
+      loginOk = true;
+    }
+  } catch (e) {
+    loginError = e && e.message ? e.message : "login failed";
+  }
+  return {
+    ok: true,
+    count: out.results.length,
+    loginOk,
+    loginError: loginOk ? "" : loginError || "Add username + password to enable downloads"
+  };
 }
 
-export { baseLang as osBaseLang };
+export { baseLang as osBaseLang, API_DEFAULT };

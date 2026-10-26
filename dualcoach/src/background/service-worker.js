@@ -4,7 +4,15 @@ import { getSettings, getApiKey, hasProviderAccess, languageName, baseLang, DEFA
 import { fetchDefinition, wiktionaryLookup } from "./wiktionary.js";
 import { llmExplain } from "./llm.js";
 import { cacheGet, cacheSet, cacheClear, shortHash, DAY, TTL_DICT, TTL_LLM } from "./cache.js";
-import { searchSubtitles, downloadSubtitle, testOpenSubtitles as probeOpenSubtitles } from "./opensubtitles.js";
+import {
+  searchSubtitles,
+  downloadSubtitle,
+  testOpenSubtitles as probeOpenSubtitles,
+  ensureOsToken,
+  setStoredOsCredentials,
+  getStoredOsAuth,
+  loginOpenSubtitles
+} from "./opensubtitles.js";
 
 const VOCAB_KEY = "vocab";
 const TTL_MISS = 3 * DAY;

@@ -22,7 +22,7 @@ Same visual language as the reading coach: cream surfaces, forest-green accents 
 
 **When a site has no captions**, open the Script panel (`T` or the Script button on the player) and use one of:
 
-1. **OpenSubtitles** — Settings → API key, then Search / Load best dual (title or `S01E02`)
+1. **OpenSubtitles** — Settings → API key **and** username/password (downloads need login JWT; otherwise you see `missing token`), then Script → Search / Load best dual
 2. **Local files** — pick learning + translation `.srt` / `.vtt` from your computer → Load files
 3. **Player CC** — turn captions on once so DualCoach can sniff the network file
 

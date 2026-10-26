@@ -35,7 +35,7 @@
       '<div class="pane on" data-pane="script">' +
       '<div class="os-box">' +
       '<div class="os-hd">Add subtitles</div>' +
-      '<p class="os-help">Site has no CC? Search OpenSubtitles, or load .srt / .vtt files from your computer.</p>' +
+      '<p class="os-help">Site has no CC? Search OpenSubtitles (needs API key + account login in Settings), or load .srt / .vtt files.</p>' +
       '<input class="os-q" type="search" placeholder="Movie or series title (e.g. Rebel Moon S01E01)" spellcheck="false" />' +
       '<div class="os-actions">' +
       '<button class="os-btn" data-os="search" type="button">Search</button>' +
