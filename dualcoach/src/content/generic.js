@@ -158,6 +158,28 @@
   }
 
   async function fetchParsed(url) {
+    if (!url || /^(data|blob|javascript):/i.test(url)) return [];
+    // Service-worker fetch bypasses the page CSP connect-src (Opera/Chrome on locked-down sites).
+    try {
+      var via = await DC.send({ type: "fetchText", url: url, credentials: "omit" });
+      if (via && via.ok && via.text) return P.parseSubtitleText(via.text, url);
+      if (via && via.status === 403) {
+        via = await DC.send({ type: "fetchText", url: url, credentials: "include" });
+        if (via && via.ok && via.text) return P.parseSubtitleText(via.text, url);
+      }
+    } catch (_) {
+      /* fall through */
+    }
+    try {
+      if (DC.page && DC.page.request) {
+        var page = await DC.page.request("GEN_FETCH", { url: url }, 8000);
+        if (page && page.status >= 200 && page.status < 300 && page.text) {
+          return P.parseSubtitleText(page.text, url);
+        }
+      }
+    } catch (_) {
+      /* fall through */
+    }
     try {
       var res = await fetch(url, { credentials: "include" });
       if (!res.ok) return [];
@@ -352,13 +374,27 @@
       }
     });
 
+    function floatingRoot() {
+      var root = document.getElementById("dc-floating-root");
+      if (!root) {
+        root = document.createElement("div");
+        root.id = "dc-floating-root";
+        root.setAttribute(
+          "style",
+          "all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483646;"
+        );
+        (document.body || document.documentElement).appendChild(root);
+      }
+      return root;
+    }
+
     var adapter = {
       site: "generic",
       bottom: "8%",
       sideBottom: "0px",
       container: function () {
         var v = adapter.video();
-        if (!v) return null;
+        if (!v) return floatingRoot();
         var wrap = v.closest(
           ".video-js, .plyr, .mejs__container, .jwplayer, .html5-video-player, [data-player], .vjs-tech"
         );
@@ -371,7 +407,7 @@
           }
           p = p.parentElement;
         }
-        return v.parentElement || document.body;
+        return v.parentElement || floatingRoot();
       },
       video: function () {
         if (videoEl && videoEl.isConnected) return videoEl;

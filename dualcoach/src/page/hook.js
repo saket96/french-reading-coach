@@ -216,6 +216,7 @@
         if (!url) return false;
         var u = String(url);
         if (u.length > 4000) return false;
+        if (/^(data|blob|javascript):/i.test(u)) return false;
         var low = u.toLowerCase();
         if (/\.(js|css|png|jpe?g|gif|webp|woff2?|ttf|mp4|m4s|ts|aac|m4a)([?#]|$)/.test(low)) return false;
         if (/\.(vtt|srt|ass|ssa)([?#]|$)/.test(low)) return true;

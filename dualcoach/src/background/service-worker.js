@@ -233,6 +233,24 @@ const handlers = {
     return { hasKey: !!apiKey, allowed };
   },
 
+  /** Fetch remote text via the service worker (bypasses page CSP connect-src). */
+  async fetchText(msg) {
+    const url = String((msg && msg.url) || "").trim();
+    if (!url || /^(data|blob|javascript):/i.test(url)) {
+      return { error: "Invalid URL", status: 0, text: "" };
+    }
+    try {
+      const res = await fetch(url, {
+        credentials: msg.credentials === "include" ? "include" : "omit",
+        redirect: "follow"
+      });
+      const text = await res.text();
+      return { status: res.status, ok: res.ok, text };
+    } catch (e) {
+      return { error: e && e.message ? e.message : "Fetch failed", status: 0, text: "" };
+    }
+  },
+
   async osSearch(msg) {
     const apiKey = await getApiKey("opensubtitles");
     if (!apiKey) return { error: "Add an OpenSubtitles API key in Settings" };

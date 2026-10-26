@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_appName__",
   "short_name": "__MSG_appShortName__",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "__MSG_appDescription__",
   "default_locale": "en",
   "icons": {
@@ -23,12 +23,7 @@
     "http://*/*",
     "https://*/*"
   ],
-  "optional_host_permissions": [
-    "https://generativelanguage.googleapis.com/*",
-    "https://api.anthropic.com/*",
-    "https://openrouter.ai/*",
-    "https://api.opensubtitles.com/*"
-  ],
+  "optional_host_permissions": [],
   "background": {
     "service_worker": "src/background/service-worker.js",
     "type": "module"

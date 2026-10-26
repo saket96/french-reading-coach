@@ -106,15 +106,19 @@ export async function setApiKey(provider, value) {
   else await chrome.storage.local.remove(name);
 }
 
-// Optional host permission for the provider's API, granted from the options page.
+// Provider APIs are covered by the extension's broad https://*/* host permission.
 export async function hasProviderAccess(provider) {
   const origin = PROVIDER_ORIGINS[provider];
   if (!origin) return false;
   try {
-    return await chrome.permissions.contains({ origins: [origin] });
+    if (await chrome.permissions.contains({ origins: [origin] })) return true;
+    // Manifest already grants http(s)://*/* — treat API hosts as allowed.
+    if (await chrome.permissions.contains({ origins: ["https://*/*"] })) return true;
+    if (await chrome.permissions.contains({ origins: ["<all_urls>"] })) return true;
   } catch (_) {
-    return false;
+    /* ignore */
   }
+  return false;
 }
 
 export function siteOf(url) {

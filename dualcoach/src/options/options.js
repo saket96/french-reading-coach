@@ -118,15 +118,33 @@ function setKeyVisible(visible) {
   $("btn-key-toggle").setAttribute("aria-pressed", visible ? "true" : "false");
 }
 
-// Must run inside a click/change handler (Chrome requires a user gesture).
+// Broad https://*/* already covers provider APIs — don't request redundant optional perms (Opera warns).
 function requestAccess(provider) {
   const origin = PROVIDER_ORIGINS[provider];
   if (!origin) return Promise.resolve(false);
   return new Promise((resolve) => {
     try {
-      chrome.permissions.request({ origins: [origin] }, (granted) => {
-        void chrome.runtime.lastError;
-        resolve(!!granted);
+      chrome.permissions.contains({ origins: ["https://*/*"] }, (broad) => {
+        if (chrome.runtime.lastError) {
+          /* fall through */
+        } else if (broad) {
+          resolve(true);
+          return;
+        }
+        chrome.permissions.contains({ origins: [origin] }, (have) => {
+          if (have) {
+            resolve(true);
+            return;
+          }
+          try {
+            chrome.permissions.request({ origins: [origin] }, (granted) => {
+              void chrome.runtime.lastError;
+              resolve(!!granted);
+            });
+          } catch (_) {
+            resolve(false);
+          }
+        });
       });
     } catch (_) {
       resolve(false);
