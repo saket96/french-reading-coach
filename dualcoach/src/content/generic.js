@@ -517,15 +517,22 @@
 
     async function load(t) {
       var v = adapter.video();
-      if (!v) {
-        diag.label = "";
-        diag.note = "No HTML5 video in this frame";
-        return;
-      }
-      bindVideo(v);
       await refreshNetTracks();
       if (stale(t)) return;
 
+      // Always show Script panel (OpenSubtitles / local files) even if this frame has no <video>
+      // (common on movie hosts where the player lives in a child iframe).
+      if (!v) {
+        diag.label = "";
+        diag.note = "No HTML5 video in this frame — load OpenSubtitles or a local .srt/.vtt";
+        ensureCtl().showShell(
+          "No video in this tab frame. Use OpenSubtitles or Load files below, or open the player iframe and press T."
+        );
+        softToast("Open Script panel → OpenSubtitles or Load files", 4500);
+        return;
+      }
+
+      bindVideo(v);
       var s = DC.settings;
       var tracks = collectTracks(v).concat(netAsTracks());
       diag.tracks = tracks.map(function (tr) {
@@ -537,7 +544,7 @@
       var waitMsg =
         tracks.length || netTracks.length
           ? "Looking for subtitles…"
-          : "Turn on Audio & Subtitles (CC) in the player — DualCoach will catch them";
+          : "Turn on player CC, or use OpenSubtitles / Load files in the Script panel";
       ensureCtl().showShell(waitMsg);
       softToast(waitMsg, 4000);
 
@@ -675,8 +682,8 @@
     function tick() {
       if (!DC.running) return;
       var v = adapter.video();
-      var key = videoKey(v);
-      if (key && key !== currentKey) {
+      var key = videoKey(v) || (v ? "v" : "novideo|" + netTracks.length);
+      if (key !== currentKey) {
         currentKey = key;
         token++;
         load(token);
@@ -688,6 +695,8 @@
         token++;
         currentKey = "";
         loadedKey = "";
+        // Show panel immediately (even before a video appears)
+        ensureCtl().showShell("Load captions via OpenSubtitles or local .srt/.vtt files");
         refreshNetTracks().then(function () {
           tick();
         });
@@ -707,6 +716,8 @@
         }
         var hide = document.getElementById(HIDE_CSS_ID);
         if (hide) hide.remove();
+        var float = document.getElementById("dc-floating-root");
+        if (float) float.remove();
       },
       applySettings: function (prev) {
         if (ctl) ctl.applySettings();
