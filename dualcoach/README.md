@@ -20,7 +20,13 @@ Same visual language as the reading coach: cream surfaces, forest-green accents 
 
 **Movie / embed sites (e.g. custom players):** open **Audio & Subtitles** and enable a caption track once. DualCoach sniffs `.vtt`/`.srt` network requests inside the player iframe and builds the Script panel from them.
 
-**OpenSubtitles fallback:** if no captions load, use the Script panel search (movie/series title, optional `S01E02`). Add a free API key under **Settings → OpenSubtitles** ([consumers page](https://www.opensubtitles.com/en/consumers)). **Load best dual** pulls your learning + native languages in one step (download quota applies).
+**When a site has no captions**, open the Script panel (`T` or the Script button on the player) and use one of:
+
+1. **OpenSubtitles** — Settings → API key, then Search / Load best dual (title or `S01E02`)
+2. **Local files** — pick learning + translation `.srt` / `.vtt` from your computer → Load files
+3. **Player CC** — turn captions on once so DualCoach can sniff the network file
+
+On embed/movie sites the DualCoach UI lives **on the video player** (often inside an iframe), not in the browser chrome.
 
 ## Install (unpacked)
 

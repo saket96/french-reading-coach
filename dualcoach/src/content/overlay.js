@@ -34,12 +34,17 @@
       '<div class="side-panes">' +
       '<div class="pane on" data-pane="script">' +
       '<div class="os-box">' +
-      '<div class="os-hd">OpenSubtitles</div>' +
-      '<p class="os-help">If this site has no captions, search by movie or series title.</p>' +
-      '<input class="os-q" type="search" placeholder="Movie or series title" spellcheck="false" />' +
+      '<div class="os-hd">Add subtitles</div>' +
+      '<p class="os-help">Site has no CC? Search OpenSubtitles, or load .srt / .vtt files from your computer.</p>' +
+      '<input class="os-q" type="search" placeholder="Movie or series title (e.g. Rebel Moon S01E01)" spellcheck="false" />' +
       '<div class="os-actions">' +
       '<button class="os-btn" data-os="search" type="button">Search</button>' +
       '<button class="os-btn os-btn-primary" data-os="best" type="button">Load best dual</button>' +
+      "</div>" +
+      '<div class="os-files">' +
+      '<label class="os-file">Learning .srt/.vtt<input type="file" class="os-file-learn" accept=".srt,.vtt,text/vtt,application/x-subrip,text/plain" /></label>' +
+      '<label class="os-file">Translation .srt/.vtt<input type="file" class="os-file-native" accept=".srt,.vtt,text/vtt,application/x-subrip,text/plain" /></label>' +
+      '<button class="os-btn" data-os="files" type="button">Load files</button>' +
       "</div>" +
       '<div class="os-status" hidden></div>' +
       '<div class="os-results"></div>' +
