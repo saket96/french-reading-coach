@@ -21,12 +21,13 @@
       '<div class="subs" hidden><div class="line l1"><span class="box"></span></div>' +
       '<div class="line l2"><span class="box"></span><span class="chip" hidden></span></div>' +
       '<div class="line nt"><span class="note"></span></div></div>' +
-      '<div class="tools"><button class="tb" data-act="side" type="button" title="Script panel (T)">' + DC.SVG.list + "<span>Script</span></button></div>" +
+      '<div class="tools"><button class="tb" data-act="side" type="button" title="Show or hide Script panel (T)">' + DC.SVG.list + "<span class=\"tb-label\">Script</span></button></div>" +
       '<div class="toast" role="status"></div>' +
       "</div>" +
       '<aside class="side">' +
       '<div class="side-hd"><div class="side-brand"><div class="side-t">DualCoach</div><div class="side-sub"></div></div>' +
-      '<button class="x" data-act="side-close" type="button" title="Close (T)">' + DC.SVG.close + "</button></div>" +
+      '<button class="side-hide" data-act="side-close" type="button" title="Hide panel (T or Esc)">' +
+      DC.SVG.close + "<span>Hide</span></button></div>" +
       '<div class="side-tabs">' +
       '<button class="stab on" data-tab="script" type="button">Script</button>' +
       '<button class="stab" data-tab="vocab" type="button">Vocab</button>' +
@@ -573,6 +574,9 @@
       root.classList.toggle("blur-learn", !!s.blurLearn);
       root.classList.toggle("side-open", !!s.showSidebar);
       sideBtn.classList.toggle("on", !!s.showSidebar);
+      var label = sideBtn.querySelector(".tb-label");
+      if (label) label.textContent = s.showSidebar ? "Hide" : "Script";
+      sideBtn.title = s.showSidebar ? "Hide Script panel (T)" : "Show Script panel (T)";
       root.style.setProperty("--bottom", adapter.bottom || "10%");
       root.style.setProperty("--side-bottom", adapter.sideBottom || "0px");
       root.style.setProperty("--side-w", "400px");
@@ -827,7 +831,9 @@
       var act = t.closest && t.closest("[data-act]");
       if (act) {
         var name = act.getAttribute("data-act");
-        if (name === "side" || name === "side-close") toggleSetting("showSidebar");
+        if (name === "side" || name === "side-close") {
+          toggleSetting("showSidebar", "Script panel");
+        }
         return;
       }
       var row = t.closest && t.closest(".row");
@@ -908,11 +914,15 @@
     }
 
     function handleKey(e) {
-      if (destroyed || !cues.length || !DC.settings.enabled) return false;
+      if (destroyed || !DC.settings.enabled) return false;
       if (e.ctrlKey || e.metaKey) return false;
       if (isEditable(e)) return false;
       var code = e.code;
+      var hasCues = cues.length > 0;
+      var shellOn = hasCues || idleShell;
+      if (!shellOn && code !== "KeyT" && code !== "Escape") return false;
       if (e.altKey) {
+        if (!hasCues) return false;
         if (code !== "KeyS" || e.shiftKey) return false;
         hiddenByUser = !hiddenByUser;
         syncVisibility();
@@ -921,16 +931,29 @@
         return true;
       }
       if (e.shiftKey || hiddenByUser) return false;
+      // Show/hide Script panel even before cues load (movie sites / OpenSubtitles shell)
+      if (code === "KeyT") {
+        toggleSetting("showSidebar", "Script panel");
+        return true;
+      }
+      if (code === "Escape") {
+        if (DC.card.isOpen()) {
+          DC.card.close();
+          return true;
+        }
+        if (DC.settings.showSidebar) {
+          toggleSetting("showSidebar", "Script panel");
+          return true;
+        }
+        return false;
+      }
+      if (!hasCues) return false;
       switch (code) {
         case "KeyA": nav(-1); return true;
         case "KeyS": nav(0); return true;
         case "KeyD": nav(1); return true;
         case "KeyQ": autoPausedFor = -1; toggleSetting("autoPause", "Auto-pause"); return true;
         case "KeyE": toggleSetting("blurNative", "Blur translation"); return true;
-        case "KeyT": toggleSetting("showSidebar"); return true;
-        case "Escape":
-          if (DC.card.isOpen()) { DC.card.close(); return true; }
-          return false;
       }
       return false;
     }
