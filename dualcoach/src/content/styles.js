@@ -37,14 +37,16 @@
     ".blur-learn .l1 .box,.blur-learn .r-l1{filter:blur(6px);transition:filter .12s;}",
     ".blur-nat .l2:hover .box,.blur-nat .row:hover .r-l2,.blur-learn .l1:hover .box,.blur-learn .row:hover .r-l1{filter:none;}",
 
-    // top-right tool button
-    ".tools{position:absolute;top:56px;right:14px;display:flex;gap:6px;pointer-events:auto;opacity:.7;transition:opacity .12s;}",
+    // Mid-right tool button — clear of player chrome (Audio & Subtitles / quality)
+    ".tools{position:absolute;top:50%;right:14px;transform:translateY(-50%);display:flex;flex-direction:column;gap:6px;",
+    "pointer-events:auto;opacity:.75;transition:opacity .12s,right .18s ease;z-index:6;}",
     ".tools:hover{opacity:1;}",
-    ".tb{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;border-radius:7px;",
-    "border:1px solid rgba(217,207,192,.35);background:rgba(31,42,36,.82);color:#fffaf2;cursor:pointer;",
-    "font:600 12px/1 " + FONT + ";}",
+    ".root.side-open .tools{right:10px;}",
+    ".tb{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 11px;border-radius:8px;",
+    "border:1px solid rgba(217,207,192,.4);background:rgba(31,42,36,.88);color:#fffaf2;cursor:pointer;",
+    "font:600 12.5px/1 " + FONT + ";box-shadow:0 4px 14px rgba(0,0,0,.28);}",
     ".tb:hover{border-color:#c8e6d8;}",
-    ".tb.on{border-color:#2f6f5e;color:#c8e6d8;background:rgba(47,111,94,.35);}",
+    ".tb.on{border-color:#2f6f5e;color:#c8e6d8;background:rgba(47,111,94,.45);}",
     ".tb svg{width:14px;height:14px;display:block;}",
 
     // toast
