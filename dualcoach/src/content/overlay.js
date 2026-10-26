@@ -65,9 +65,13 @@
     var osQ = $(".os-q");
     var osStatus = $(".os-status");
     var osResults = $(".os-results");
+    var osFileLearn = $(".os-file-learn");
+    var osFileNative = $(".os-file-native");
     var layer = $(".layer");
     var sideTab = "script";
     var osHits = [];
+    var pendingLearnFile = "";
+    var pendingNativeFile = "";
 
     STOP_EVENTS.forEach(function (t) {
       host.addEventListener(t, function (e) { e.stopPropagation(); }, false);
@@ -382,6 +386,49 @@
         label
       );
       if (res.remaining != null) setOsStatus("Loaded · " + res.remaining + " downloads left today", "ok");
+    }
+
+    function readFileAsText(file) {
+      return new Promise(function (resolve, reject) {
+        if (!file) return resolve("");
+        var reader = new FileReader();
+        reader.onload = function () {
+          resolve(String(reader.result || ""));
+        };
+        reader.onerror = function () {
+          reject(new Error("Could not read " + (file.name || "file")));
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    async function osLoadLocalFiles() {
+      try {
+        var learnText = pendingLearnFile;
+        var nativeText = pendingNativeFile;
+        if (osFileLearn && osFileLearn.files && osFileLearn.files[0]) {
+          learnText = await readFileAsText(osFileLearn.files[0]);
+          pendingLearnFile = learnText;
+        }
+        if (osFileNative && osFileNative.files && osFileNative.files[0]) {
+          nativeText = await readFileAsText(osFileNative.files[0]);
+          pendingNativeFile = nativeText;
+        }
+        if (!learnText) {
+          setOsStatus("Choose a learning-language .srt or .vtt file first", "err");
+          return;
+        }
+        var learnLang = DC.settings.learnLang === "auto" ? "und" : DC.settings.learnLang;
+        var nativeLang = DC.settings.nativeLang;
+        var label =
+          (DC.langName(learnLang) || "Learning") +
+          (nativeText ? " + " + (DC.langName(nativeLang) || "Translation") : " only") +
+          " · local file";
+        setOsStatus("Loading local subtitles…");
+        await applyOsTexts(learnText, nativeText, learnLang, nativeLang, label);
+      } catch (e) {
+        setOsStatus((e && e.message) || "Could not load those files", "err");
+      }
     }
 
     async function osLoadFile(fileId, lang) {
@@ -755,6 +802,7 @@
         var act = osAct.getAttribute("data-os");
         if (act === "search") osSearch();
         else if (act === "best") osLoadBest();
+        else if (act === "files") osLoadLocalFiles();
         return;
       }
       var osHit = t.closest && t.closest("[data-os-file]");
