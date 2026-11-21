@@ -42,6 +42,16 @@ const SECTIONS = [
     ],
   },
   {
+    title: 'Oral TCF (prononciation)',
+    body: [
+      'Bouton Oral TCF dans le dock : choisissez une tâche (EE1–EE3, Orale, ou Mes travaux).',
+      'Modes : Écouter & répéter, Ombre (shadowing), Lecture complète.',
+      'Écoutez le modèle (pause / rejouer phrase), enregistrez, réécoutez, puis soumettez.',
+      'L’analyse combine Whisper, alignement FR et OpenPronounce ; les faiblesses sont suivies localement.',
+      'Comparez chaque tentative à la précédente pour voir les progrès.',
+    ],
+  },
+  {
     title: 'Texte & vocabulaire',
     body: [
       'Bibliothèque : passages prêts. Mon texte : collez du français, ou importez un PDF / Word (.docx).',

@@ -6,6 +6,7 @@
 
 import { loadCustomText, saveCustomText } from './customText.js'
 import { loadVocabulary, saveVocabulary } from './vocabulary.js'
+import { exportPracticeBackup } from './practiceDb.js'
 import { listWorks, saveWork } from './worksDb.js'
 
 const SETTINGS_KEYS = [
@@ -50,6 +51,12 @@ function writeSettings(settings = {}) {
 /** Build a portable JSON backup of everything stored in this browser. */
 export async function exportBrowserBackup() {
   const works = await listWorks()
+  let practice = null
+  try {
+    practice = await exportPracticeBackup()
+  } catch {
+    practice = null
+  }
   return {
     version: BACKUP_VERSION,
     app: 'coach-de-lecture-francaise',
@@ -58,6 +65,7 @@ export async function exportBrowserBackup() {
     vocabulary: loadVocabulary(),
     customText: loadCustomText(),
     settings: readSettings(),
+    practice,
   }
 }
 

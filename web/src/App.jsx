@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { Button } from './components/ui/button.jsx'
 import { HelpPanel } from './components/HelpPanel.jsx'
+import { PronunciationPractice } from './components/PronunciationPractice.jsx'
 import { VocabDeck } from './components/VocabDeck.jsx'
 import { WorksPanel } from './components/WorksPanel.jsx'
 import { extractTextFromDocument } from './lib/documentImport.js'
@@ -237,6 +238,7 @@ export default function App() {
   const [showVocab, setShowVocab] = useState(false)
   const [showDeck, setShowDeck] = useState(false)
   const [showWorks, setShowWorks] = useState(false)
+  const [showPronunciationPractice, setShowPronunciationPractice] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [importBusy, setImportBusy] = useState(false)
   const [importNote, setImportNote] = useState('')
@@ -1192,10 +1194,17 @@ export default function App() {
         <CircleHelp className="h-5 w-5" aria-hidden="true" />
       </button>
       <HelpPanel open={showHelp} onClose={() => setShowHelp(false)} />
+      <PronunciationPractice
+        open={showPronunciationPractice}
+        onClose={() => setShowPronunciationPractice(false)}
+        voiceURI={voiceURI}
+        speakingPace={pace}
+        whisperModel={whisperModel}
+      />
 
       <header className="mb-6">
         <p className="text-xs font-semibold tracking-[0.2em] text-ring uppercase">
-          Lecture guidée · vocabulaire · prononciation
+          Lecture guidée · vocabulaire · prononciation · oral TCF
         </p>
         <h1 className="mt-1 font-serif text-3xl sm:text-4xl">Coach de lecture française</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
@@ -1803,6 +1812,19 @@ export default function App() {
           >
             <Database className="h-4 w-4" />
             Mes travaux
+          </Button>
+          <Button
+            variant={showPronunciationPractice ? 'default' : 'outline'}
+            onClick={() => {
+              setShowPronunciationPractice(true)
+              setShowWorks(false)
+              setShowDeck(false)
+              setShowVocab(false)
+            }}
+            title="TCF : écoute, ombre, enregistrement, analyse et suivi des faiblesses"
+          >
+            <Mic className="h-4 w-4" />
+            Oral TCF
           </Button>
           <Button
             variant="outline"
