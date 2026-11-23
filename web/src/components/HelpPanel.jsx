@@ -47,8 +47,9 @@ const SECTIONS = [
       'Bouton Oral TCF dans le dock : choisissez une tâche (EE1–EE3, Orale, ou Mes travaux).',
       'Modes : Écouter & répéter, Ombre (shadowing), Lecture complète.',
       'Écoutez le modèle (pause / rejouer phrase), enregistrez, réécoutez, puis soumettez.',
-      'L’analyse combine Whisper, alignement FR et OpenPronounce ; les faiblesses sont suivies localement.',
-      'Comparez chaque tentative à la précédente pour voir les progrès.',
+      'OpenPronounce (voyant Prononciation vert) juge les phonèmes ; Whisper sert surtout à la fluidité et aux mots manquants.',
+      'Whisper « normalise » souvent l’orthographe : un bon match texte ≠ bonne prononciation. Sans Prononciation : `docker compose up -d pronounce`.',
+      'Les faiblesses sont suivies localement ; comparez chaque tentative à la précédente.',
     ],
   },
   {
@@ -66,6 +67,7 @@ const SECTIONS = [
     body: [
       'Lent / Moyen / Rapide règle seulement la vitesse d’écoute.',
       'Voyants Whisper et Prononciation : verts = Docker prêt.',
+      'Pour un vrai score de prononciation Oral TCF, le voyant Prononciation doit être vert (`docker compose up -d pronounce`).',
       'Si Écouter est silencieux : changez de voix française et retestez.',
     ],
   },

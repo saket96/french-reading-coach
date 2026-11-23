@@ -4,6 +4,7 @@
  */
 
 import { alignWords } from './align.js'
+import { tokenizeFrench } from './tokenize.js'
 import { buildFocusReview } from './review.js'
 import { analyzeLiaisons, analyzeTerminations } from './liaison.js'
 
@@ -33,7 +34,13 @@ export function analyzeSpeechAttempt(input) {
   const pronounceTips = input.pronounceTips || null
   const durationMs = Number(input.durationMs) || 0
 
-  const alignment = expectedText && transcript ? alignWords(expectedText, transcript) : null
+  // alignWords expects token arrays (App.jsx does the same) — raw strings become
+  // character-level ops and break Oral TCF scoring.
+  const alignment =
+    expectedText && transcript
+      ? alignWords(tokenizeFrench(expectedText), tokenizeFrench(transcript))
+      : null
+  const alignPct = alignmentScore100(alignment)
   const liaisonAnalysis = analyzeLiaisons(expectedText, transcript, alignment?.ops ?? [])
   const terminationIssues = analyzeTerminations(alignment?.ops ?? [])
   const focusReview = buildFocusReview({
@@ -46,9 +53,9 @@ export function analyzeSpeechAttempt(input) {
 
   const pronunciation = buildPronunciationSection({
     alignment,
+    alignPct,
     pronounceTips,
     expectedText,
-    transcript,
   })
   const fluency = buildFluencySection({
     expectedText,
@@ -59,7 +66,7 @@ export function analyzeSpeechAttempt(input) {
   })
   const grammar = buildGrammarSection({ alignment, expectedText, transcript })
   const vocabulary = buildVocabularySection({ alignment })
-  const listeningRecall = buildListeningRecallSection({ alignment, focusReview })
+  const listeningRecall = buildListeningRecallSection({ alignment, alignPct, focusReview })
 
   const weaknesses = collectWeaknesses({
     pronunciation,
@@ -68,13 +75,15 @@ export function analyzeSpeechAttempt(input) {
     vocabulary,
     listeningRecall,
     focusReview,
+    alignPct,
   })
 
   const overallScore = scoreOverall({
-    alignment,
-    pronounceTips,
+    alignPct,
+    pronunciation,
     fluency,
     grammar,
+    hasOpenPronounce: Number.isFinite(Number(pronounceTips?.score)),
   })
 
   return {
@@ -98,70 +107,109 @@ export function analyzeSpeechAttempt(input) {
   }
 }
 
-function buildPronunciationSection({ alignment, pronounceTips, expectedText, transcript }) {
+function buildPronunciationSection({ alignment, alignPct, pronounceTips, expectedText }) {
   const issues = []
   const phoneErrors = Array.isArray(pronounceTips?.errors) ? pronounceTips.errors : []
+  const openScore = Number(pronounceTips?.score)
+  const hasOpenPronounce = Number.isFinite(openScore)
+  // Whisper "close" / soft FR matches must never inflate the phoneme score when
+  // OpenPronounce already scored the audio.
+  const useAlignmentHeuristics = !hasOpenPronounce
 
   for (const err of phoneErrors.slice(0, 12)) {
-    const msg = String(err.message || err.phone || '')
+    const msg = phoneErrorDetail(err)
     const word = err.word || ''
+    const hay = `${msg} ${err.expected || ''} ${err.actual || ''} ${word}`
     let tag = 'consonne'
-    if (/nasal|ã|ẽ|ĩ|õ|œ̃/i.test(msg) || NASAL_RE.test(word)) tag = 'voyelle-nasale'
-    else if (/\br\b|ʁ|uvular/i.test(msg) || (R_SOUND_RE.test(word) && /r/i.test(msg))) tag = 'r-francais'
-    else if (/[uy]|ou|ü/i.test(msg)) tag = 'u-vs-ou'
-    else if (/[eéèê]|ouvert|fermé/i.test(msg) || E_ACCENT_RE.test(word)) tag = 'e-accent'
-    else if (/liaison/i.test(msg)) tag = 'liaison'
-    else if (/final|ending|terminaison/i.test(msg)) tag = 'terminaison'
+    if (/nasal|ã|ẽ|ĩ|õ|œ̃/i.test(hay) || NASAL_RE.test(word)) tag = 'voyelle-nasale'
+    else if (/\br\b|ʁ|uvular/i.test(hay) || (R_SOUND_RE.test(word) && /r|ʁ/i.test(hay))) tag = 'r-francais'
+    else if (/[uy]|ou|ü|y\b/i.test(hay)) tag = 'u-vs-ou'
+    else if (/[eéèê]|ouvert|fermé/i.test(hay) || E_ACCENT_RE.test(word)) tag = 'e-accent'
+    else if (/liaison/i.test(hay)) tag = 'liaison'
+    else if (/final|ending|terminaison/i.test(hay)) tag = 'terminaison'
     issues.push({
       tag,
       label: labelForPronTag(tag),
       word,
+      expected: err.expected || '',
+      actual: err.actual || '',
       detail: msg || `Contrôlez la prononciation de « ${word} ».`,
     })
   }
 
-  // Heuristic from wrong pairs that often confuse U/OU or É/È
-  for (const op of (alignment?.ops || []).filter((o) => o.type === 'wrong').slice(0, 8)) {
-    const a = fold(op.target)
-    const b = fold(op.hyp)
-    for (const [x, y] of U_OU_PAIRS) {
-      if ((a.includes(x) && b.includes(y)) || (a.includes(y) && b.includes(x))) {
+  if (hasOpenPronounce && openScore < 70 && phoneErrors.length === 0) {
+    issues.push({
+      tag: 'phonemes',
+      label: 'Prononciation (phonèmes)',
+      word: '',
+      detail: `Score OpenPronounce bas (${Math.round(openScore)}/100) — Whisper peut « normaliser » l’orthographe même quand les sons sont imprécis.`,
+    })
+  }
+
+  // Heuristic from wrong pairs that often confuse U/OU or É/È (Whisper-only path)
+  if (useAlignmentHeuristics) {
+    for (const op of (alignment?.ops || []).filter((o) => o.type === 'wrong').slice(0, 8)) {
+      const a = fold(op.target)
+      const b = fold(op.hyp)
+      for (const [x, y] of U_OU_PAIRS) {
+        if ((a.includes(x) && b.includes(y)) || (a.includes(y) && b.includes(x))) {
+          issues.push({
+            tag: 'u-vs-ou',
+            label: 'U vs OU',
+            word: op.target,
+            detail: `Attendu « ${op.target} », entendu « ${op.hyp} » — distinction u / ou.`,
+          })
+        }
+      }
+      if (/[éè]/.test(op.target || '') && fold(op.target) === fold(op.hyp)) {
         issues.push({
-          tag: 'u-vs-ou',
-          label: 'U vs OU',
+          tag: 'e-accent',
+          label: 'É vs È',
           word: op.target,
-          detail: `Attendu « ${op.target} », entendu « ${op.hyp} » — distinction u / ou.`,
+          detail: `Accent ou ouverture de la voyelle sur « ${op.target} ».`,
         })
       }
     }
-    if (/[éè]/.test(op.target || '') && fold(op.target) === fold(op.hyp)) {
+
+    if (NASAL_RE.test(expectedText) && alignPct != null && alignPct < 75) {
       issues.push({
-        tag: 'e-accent',
-        label: 'É vs È',
-        word: op.target,
-        detail: `Accent ou ouverture de la voyelle sur « ${op.target} ».`,
+        tag: 'voyelle-nasale',
+        label: 'Voyelles nasales',
+        word: '',
+        detail: 'Le passage contient des nasales (an/en/in/on/un) — soignez la résonance sans fermer trop la bouche.',
       })
     }
   }
 
-  if (NASAL_RE.test(expectedText) && alignment?.score != null && alignment.score < 75) {
-    issues.push({
-      tag: 'voyelle-nasale',
-      label: 'Voyelles nasales',
-      word: '',
-      detail: 'Le passage contient des nasales (an/en/in/on/un) — soignez la résonance sans fermer trop la bouche.',
-    })
+  const unique = dedupeIssues(issues)
+  let score
+  let whisperNormalized = false
+  let note = pronounceTips?.note || ''
+
+  if (hasOpenPronounce) {
+    // Prefer the real phoneme score; never blend upward with Whisper alignment.
+    score = clamp(Math.round(openScore))
+  } else {
+    score = estimatePronScore(alignPct)
+    whisperNormalized = score != null
+    if (!note) {
+      note =
+        'Whisper ne juge pas la prononciation de façon fiable (il « normalise » l’orthographe). Score estimé et pénalisé — démarrez OpenPronounce (`docker compose up -d pronounce`) pour un vrai feedback phonémique.'
+    }
   }
 
-  const unique = dedupeIssues(issues)
   return {
-    score: pronounceTips?.score != null ? Number(pronounceTips.score) : estimatePronScore(alignment),
+    score,
     issues: unique,
-    note: pronounceTips?.note || '',
+    note,
+    whisperNormalized,
+    source: hasOpenPronounce ? 'openpronounce' : whisperNormalized ? 'whisper-estimate' : 'none',
     clarity:
       unique.some((i) => i.tag === 'voyelle-nasale' || i.tag === 'u-vs-ou')
         ? 'Travaillez la clarté des voyelles (nasales, u/ou, é/è).'
-        : 'Clarté globale acceptable ; affinez les phonèmes signalés.',
+        : hasOpenPronounce
+          ? 'Clarté globale acceptable ; affinez les phonèmes signalés.'
+          : 'Sans OpenPronounce, la clarté phonémique reste incertaine malgré une transcription Whisper correcte.',
   }
 }
 
@@ -325,9 +373,9 @@ function buildVocabularySection({ alignment }) {
   return { score, missingWords: missing, alteredWords: wrong, issues }
 }
 
-function buildListeningRecallSection({ alignment, focusReview }) {
+function buildListeningRecallSection({ alignment, alignPct, focusReview }) {
   const missing = (alignment?.ops || []).filter((op) => op.type === 'missing').length
-  const score = clamp(Math.round((alignment?.score ?? 70) - missing * 2))
+  const score = clamp(Math.round((alignPct ?? 70) - missing * 2))
   return {
     score,
     detail:
@@ -350,7 +398,30 @@ function collectWeaknesses(sections) {
     })
   }
   for (const issue of sections.pronunciation?.issues || []) {
-    push('pronunciation', issue.label, issue.detail, issue.word ? [issue.word] : [])
+    const examples = [issue.word, issue.expected, issue.actual].filter(Boolean)
+    push('pronunciation', issue.label, issue.detail, examples)
+  }
+  // OpenPronounce errors must surface as weaknesses even when Whisper alignment looks perfect.
+  if (
+    sections.pronunciation?.source === 'openpronounce' &&
+    Number(sections.pronunciation?.score) < 75 &&
+    !(sections.pronunciation?.issues || []).length
+  ) {
+    push(
+      'pronunciation',
+      'Prononciation à retravailler',
+      `Score phonémique ${Math.round(sections.pronunciation.score)}/100 — un bon match Whisper ne signifie pas une bonne prononciation.`,
+    )
+  }
+  if (sections.pronunciation?.whisperNormalized) {
+    const alignLooksGood = Number(sections.alignPct) >= 85
+    push(
+      'pronunciation',
+      alignLooksGood ? 'Whisper ≠ prononciation' : 'OpenPronounce manquant',
+      alignLooksGood
+        ? 'La transcription Whisper colle au texte, mais Whisper « normalise » l’audio. Lancez `docker compose up -d pronounce` pour un vrai score phonémique.'
+        : 'Sans OpenPronounce, le score de prononciation est une estimation Whisper pénalisée — démarrez le service Prononciation.',
+    )
   }
   for (const issue of sections.fluency?.issues || []) {
     push('fluency', issue.label, issue.detail)
@@ -364,16 +435,28 @@ function collectWeaknesses(sections) {
   return dedupeIssues(out)
 }
 
-function scoreOverall({ alignment, pronounceTips, fluency, grammar }) {
-  const alignScore = Number(alignment?.score)
-  const phoneScore = Number(pronounceTips?.score)
+/**
+ * Weight OpenPronounce phonemes above Whisper transcript match when available.
+ * Fluency still leans on Whisper timings via the fluency section score.
+ */
+function scoreOverall({ alignPct, pronunciation, fluency, grammar, hasOpenPronounce }) {
+  const alignScore = Number(alignPct)
+  const phoneScore = Number(pronunciation?.score)
   const flu = Number(fluency?.score)
   const gram = Number(grammar?.score)
   const parts = []
-  if (Number.isFinite(alignScore)) parts.push([alignScore, 0.35])
-  if (Number.isFinite(phoneScore)) parts.push([phoneScore, 0.3])
-  if (Number.isFinite(flu)) parts.push([flu, 0.2])
-  if (Number.isFinite(gram)) parts.push([gram, 0.15])
+  if (hasOpenPronounce) {
+    if (Number.isFinite(phoneScore)) parts.push([phoneScore, 0.48])
+    if (Number.isFinite(alignScore)) parts.push([alignScore, 0.17])
+    if (Number.isFinite(flu)) parts.push([flu, 0.2])
+    if (Number.isFinite(gram)) parts.push([gram, 0.15])
+  } else {
+    // Penalized Whisper estimate already in pronunciation.score — keep alignment modest.
+    if (Number.isFinite(phoneScore)) parts.push([phoneScore, 0.28])
+    if (Number.isFinite(alignScore)) parts.push([alignScore, 0.22])
+    if (Number.isFinite(flu)) parts.push([flu, 0.3])
+    if (Number.isFinite(gram)) parts.push([gram, 0.2])
+  }
   if (!parts.length) return null
   const weightSum = parts.reduce((s, [, w]) => s + w, 0)
   const total = parts.reduce((s, [v, w]) => s + v * w, 0) / weightSum
@@ -406,9 +489,34 @@ function labelForPronTag(tag) {
   )
 }
 
-function estimatePronScore(alignment) {
+/** alignWords returns 0–1; scoring sections use 0–100. */
+function alignmentScore100(alignment) {
   if (!alignment || alignment.score == null) return null
-  return clamp(Math.round(alignment.score * 0.9 + 5))
+  const raw = Number(alignment.score)
+  if (!Number.isFinite(raw)) return null
+  // Defensive: already-percent values stay as-is.
+  return clamp(Math.round(raw <= 1 ? raw * 100 : raw))
+}
+
+/** Whisper transcript match is a weak proxy for pronunciation — penalize heavily. */
+function estimatePronScore(alignPct) {
+  if (alignPct == null || !Number.isFinite(Number(alignPct))) return null
+  return clamp(Math.round(Number(alignPct) * 0.6))
+}
+
+function phoneErrorDetail(err) {
+  if (!err || typeof err !== 'object') return ''
+  if (err.message) return String(err.message)
+  if (err.phone) return String(err.phone)
+  const word = err.word || ''
+  const expected = err.expected || ''
+  const actual = err.actual || ''
+  if (expected || actual) {
+    return word
+      ? `« ${word} » : attendu /${expected || '?'}/ → entendu /${actual || '—'}/`
+      : `Attendu /${expected || '?'}/ → entendu /${actual || '—'}/`
+  }
+  return ''
 }
 
 function looksLikeConjugationMismatch(a, b) {

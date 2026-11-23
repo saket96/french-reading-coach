@@ -294,7 +294,14 @@ export function PronunciationPractice({
         whisperWords: asr?.words || [],
         durationMs,
       })
-      if (pronounceNote) result.pronunciation.note = pronounceNote
+      if (pronounceNote) {
+        result.pronunciation.note = pronounceNote
+        // Missing OpenPronounce → keep the Whisper-normalized flag for the UI warning.
+        if (result.pronunciation.score == null || result.pronunciation.source !== 'openpronounce') {
+          result.pronunciation.whisperNormalized = true
+          result.pronunciation.source = result.pronunciation.source || 'whisper-estimate'
+        }
+      }
       setAnalysis(result)
 
       let audioDataUrl = null
@@ -690,8 +697,9 @@ function PracticeStep({
           <audio ref={audioPlayerRef} className="mt-3 w-full" controls src={audioUrl} />
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">
-            Enregistrez votre lecture, réécoutez, puis soumettez pour le feedback (Whisper +
-            OpenPronounce).
+            Enregistrez, réécoutez, puis soumettez. OpenPronounce (voyant Prononciation vert) juge
+            les sons ; Whisper sert surtout à la fluidité. Sans Prononciation :{' '}
+            <code className="text-[11px]">docker compose up -d pronounce</code>.
           </p>
         )}
       </div>
@@ -700,6 +708,15 @@ function PracticeStep({
 }
 
 function ResultStep({ analysis, compare, attempts, weaknesses, onRetry }) {
+  const pron = analysis.pronunciation
+  const rawAlign = Number(analysis.alignment?.score)
+  const alignScore = Number.isFinite(rawAlign) ? (rawAlign <= 1 ? Math.round(rawAlign * 100) : Math.round(rawAlign)) : NaN
+  const whisperLooksGood = Number.isFinite(alignScore) && alignScore >= 85
+  const openScoreLow =
+    pron?.source === 'openpronounce' && Number.isFinite(Number(pron?.score)) && Number(pron.score) < 75
+  const whisperNormalized = Boolean(pron?.whisperNormalized)
+  const showWhisperNormNotice = whisperNormalized || (whisperLooksGood && openScoreLow)
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-ring/30 bg-ring/10 px-4 py-3">
@@ -720,9 +737,39 @@ function ResultStep({ analysis, compare, attempts, weaknesses, onRetry }) {
         ) : null}
       </div>
 
-      <Section title="Prononciation" score={analysis.pronunciation?.score}>
-        <p className="text-sm text-muted-foreground">{analysis.pronunciation?.clarity}</p>
-        <IssueList items={analysis.pronunciation?.issues} />
+      {showWhisperNormNotice ? (
+        <div className="rounded-lg border border-amber-700/35 bg-amber-50 px-3 py-3 text-sm text-foreground">
+          <p className="font-medium">Whisper ≠ bonne prononciation</p>
+          <p className="mt-1 text-muted-foreground">
+            {whisperNormalized
+              ? 'Whisper « normalise » souvent l’orthographe même quand les sons sont imprécis. Le score de prononciation ci-dessous est une estimation pénalisée — ce n’est pas un vrai jugement phonémique.'
+              : 'La transcription Whisper colle au texte, mais OpenPronounce signale encore des écarts de sons. Priorisez les conseils phonémiques, pas le match texte.'}
+          </p>
+          {whisperNormalized ? (
+            <p className="mt-2 text-muted-foreground">
+              Démarrez le service Prononciation :{' '}
+              <code className="text-xs">docker compose up -d pronounce</code>
+              {' '}puis attendez le voyant Prononciation vert.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Section
+        title="Prononciation (prioritaire)"
+        score={pron?.score}
+        emphasize
+        badge={
+          pron?.source === 'openpronounce'
+            ? 'OpenPronounce'
+            : whisperNormalized
+              ? 'estimation Whisper'
+              : null
+        }
+      >
+        {pron?.note ? <p className="mb-2 text-sm text-muted-foreground">{pron.note}</p> : null}
+        <p className="text-sm text-muted-foreground">{pron?.clarity}</p>
+        <IssueList items={pron?.issues} emptyLabel="Aucun écart phonémique signalé sur cet essai." />
       </Section>
       <Section title="Fluidité" score={analysis.fluency?.score}>
         <p className="text-sm text-muted-foreground">
@@ -744,7 +791,10 @@ function ResultStep({ analysis, compare, attempts, weaknesses, onRetry }) {
 
       {analysis.comparedToExpected?.wrongWords?.length ? (
         <div className="rounded-lg border border-border p-3">
-          <h3 className="text-sm font-semibold">Écarts modèle ↔ oral</h3>
+          <h3 className="text-sm font-semibold">Écarts modèle ↔ oral (transcription Whisper)</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Un match Whisper correct ne remplace pas le score de prononciation ci-dessus.
+          </p>
           <ul className="mt-2 space-y-1 text-sm">
             {analysis.comparedToExpected.wrongWords.slice(0, 10).map((w, i) => (
               <li key={i}>
@@ -754,6 +804,14 @@ function ResultStep({ analysis, compare, attempts, weaknesses, onRetry }) {
               </li>
             ))}
           </ul>
+        </div>
+      ) : whisperLooksGood ? (
+        <div className="rounded-lg border border-border p-3">
+          <h3 className="text-sm font-semibold">Transcription Whisper</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Bon match texte ({Math.round(alignScore)}/100) — utile pour fluidité / mots manquants, pas
+            pour juger les phonèmes.
+          </p>
         </div>
       ) : null}
 
@@ -780,21 +838,38 @@ function ResultStep({ analysis, compare, attempts, weaknesses, onRetry }) {
   )
 }
 
-function Section({ title, score, children }) {
+function Section({ title, score, children, emphasize = false, badge = null }) {
   return (
-    <section className="rounded-lg border border-border p-3">
-      <div className="mb-1 flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        {score != null ? <span className="text-sm text-muted-foreground">{Math.round(score)}/100</span> : null}
+    <section
+      className={
+        emphasize
+          ? 'rounded-lg border border-ring/40 bg-ring/5 p-3'
+          : 'rounded-lg border border-border p-3'
+      }
+    >
+      <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          {badge ? (
+            <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              {badge}
+            </span>
+          ) : null}
+        </div>
+        {score != null ? (
+          <span className={emphasize ? 'font-serif text-lg' : 'text-sm text-muted-foreground'}>
+            {Math.round(score)}/100
+          </span>
+        ) : null}
       </div>
       {children}
     </section>
   )
 }
 
-function IssueList({ items }) {
+function IssueList({ items, emptyLabel = 'Rien de critique ici.' }) {
   if (!items?.length) {
-    return <p className="text-sm text-muted-foreground">Rien de critique ici.</p>
+    return <p className="text-sm text-muted-foreground">{emptyLabel}</p>
   }
   return (
     <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
